@@ -1,0 +1,581 @@
+---
+title: "Protocol of species price by spatial ices cell"
+author: "Sbrana, Sabatella"
+date: "2025-07-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Protocol to obtain average prices by species by spatial grids and/or by port
+
+```{r set CS parameters, message=FALSE, warning=FALSE}
+
+CS_name = "FAO GSA09 "
+Gear = c("OTB", "LLS")
+AER_Gear = c("DTS", "HOK")
+Year = c(2014:2022)
+Country = c("ITA")
+GSAa_CS = c("GSA9")
+GSAs_CS = c("GSA09")
+
+```
+
+
+```{r, warning=FALSE,message=FALSE}
+library(patchwork)
+library(curl)
+library(dplyr)
+library(doBy)
+library(ggplot2)
+library(ggrepel)
+library(ggridges)
+library(ggspatial)
+library(gfwr)
+library(gtsummary)
+library(leaflet)
+library(openxlsx)
+library(RColorBrewer)
+library(reshape2)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(sf)
+library(tidyverse)
+library(tidytext)
+library(terra)
+library(VennDiagram)
+library(webr)
+library(webshot2)
+```
+
+Landing and Effort: Open - filter and add coordinates by ices cell 
+
+```{r eval=FALSE, include=FALSE, cache=TRUE}
+GSA = read_sf(paste0(wd,"GSAs_simplified.shp")) %>%
+       filter(SECT_COD == GSAs_CS)
+
+
+spatial_landing = read_sf(paste0(wd,"/AER and FDI datasets (October 24)/FDI_spatial_data_EU28/EU28/landings_csquares.shp")) %>% 
+                filter(icesname != is.na(icesname) & icesname != "") %>% 
+                 st_intersection(GSA)
+  
+
+
+landing = list()
+
+for (y in 1 : length(Year)){
+
+  land_y = read.csv(paste0(wd,"/FDI_spatial_data_EU28/EU28/spatial_landings_tableau_pts_",
+                           Year[y],"_EU28.csv")) %>%
+           filter(year %in% Year & gear_type %in% Gear & icesname %in% spatial_landing$icesname) %>%
+           mutate(totwghtlandg = as.numeric(totwghtlandg), totvallandg = as.numeric(totvallandg))
+
+  landing[[y]] = land_y
+}
+
+names(landing) <- Year
+
+
+
+landing_sf = landing_sf <- purrr::map(landing, ~ .x %>%
+              left_join(spatial_landing, by = "icesname") %>%
+              st_as_sf())
+
+
+```
+
+#### Total effort and landing coverage for the case study area - resulting from FDI data
+
+
+```{r Set up, message=FALSE, warning=FALSE, fig.width=20,fig.height=20}
+
+world <- ne_countries(scale = "medium", returnclass = "sf", continent = "europe")
+world = st_transform(world, crs = st_crs(GSA))
+
+xmin = as.numeric(st_bbox(GSA)[1])-0.0001
+xmax = as.numeric(st_bbox(GSA)[3])+0.0001
+ymin = as.numeric(st_bbox(GSA)[2])-0.0001
+ymax = as.numeric(st_bbox(GSA)[4])+0.0001
+
+
+#landing
+
+for(g in 1 : length(Gear)){
+
+l_data = purrr::map(landing_sf, ~ .x %>%
+           filter(gear_type == Gear[g]))
+ 
+plot_list <- list() 
+ 
+ for(y in 1: length(Year)){
+l_plot = l_data[[y]] %>% 
+        group_by(year,gear_type,sub_region,icesname) %>% 
+        summarise(tot_kg = sum(totwghtlandg), tot_value = sum(totvallandg)) %>% 
+       ggplot()+
+         geom_sf(aes(fill = tot_value))+
+         geom_sf(data = world)+
+         coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax))+
+         scale_fill_viridis_c(option = "D")+ 
+         ggtitle(paste0("FDI EU Landings_",Gear[g],"_",Year[y]))+
+         theme_light()
+
+plot_list[[y]] <- l_plot
+ }
+ combined_plot <- wrap_plots(plotlist = plot_list, ncol = 3)
+ print(combined_plot)
+ 
+ }
+
+```
+
+--> Remove first 3 years (2014-2015-2016) because there are few data
+
+Save all the filtered data in a specific folder fd = "CaseStudy/Data/"
+
+```{r save file, message=FALSE, warning=FALSE}
+
+landing_sf =  landing_sf[!(names(landing_sf) %in% c("2014", "2015", "2016"))]
+
+fd = "CaseStudy/Data_price/"
+
+saveRDS(landing_sf, paste0(fd,"Landing_sf.RData"))
+
+saveRDS(
+  purrr::map(landing_sf, ~ .x %>% 
+               st_drop_geometry() %>% 
+              rename(id = icesname, gear = gear_type, vlength = vessel_length, tot_fish_weight = totwghtlandg,    tot_fish_value = totvallandg)),  
+  paste0(fd,"landing_CS.rData"))
+
+```
+
+
+## Filter and clean landing data
+
+Take only species that have values in all years of the time series
+
+
+```{r Landing CS, message=FALSE, warning=FALSE}
+landing_CS = readRDS(paste0(fd,"Landing_CS.RData"))
+
+euro_species = purrr::map(
+               landing_CS, ~ .x %>% 
+               filter(tot_fish_weight != 0) 
+               )
+
+euro_species_df = do.call("rbind", euro_species)
+
+species_all_years <- euro_species_df %>%
+  group_by(gear,vlength,species) %>%  
+  distinct(year, species) %>%
+  summarise(n_years = n_distinct(year), .groups = "drop") %>%
+  filter(n_years == length(unique(euro_species_df$year)))
+
+euro_species_filtered <- euro_species_df %>%
+                         inner_join(species_all_years, by = c("species", "vlength", "gear"))
+
+# remove quarter
+
+euro_species_filtered <- euro_species_filtered %>%  
+                           group_by(year,vlength, gear, id,  species) %>% 
+                           summarise(yearly_kg = mean(tot_fish_weight), yearly_value = mean(tot_fish_value))
+                           
+
+
+
+
+
+```
+
+In the time series check if there are some outlier. 
+
+```{r redefine outlier, message=FALSE, warning=FALSE, fig.width=15,fig.height=8}
+
+df <- euro_species_filtered %>% filter(yearly_value != 0)
+df$year <- as.character(df$year)
+
+vlent <- unique(df$vlength)
+
+for (g in seq_along(Gear)) {
+  for (vl in seq_along(vlent)) {
+    
+    gear_filter <- Gear[g]
+    vlength_filter <- vlent[vl]
+    
+    plot_data <- df %>%
+      filter(gear == gear_filter, vlength == vlength_filter)
+    
+    if (nrow(plot_data) == 0) next
+    
+    p <- ggplot(plot_data) +
+      geom_point(aes(x = year, y = yearly_value, color = vlength)) +
+      facet_wrap(~ species, scales = "free") +
+      theme_minimal() +
+      ggtitle(paste0("Species price time series for ", gear_filter, "_", vlength_filter)) +
+      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+    
+    print(p)
+    
+     q <- ggplot(plot_data) +
+      geom_point(aes(x = yearly_kg, y = yearly_value, color = vlength)) +
+      facet_wrap(~ species, scales = "free") +
+      theme_minimal() +
+      ggtitle(paste0("Species price time series for ", gear_filter, "_", vlength_filter)) +
+      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+    
+    print(q)
+    
+  }
+}
+
+
+```
+
+It is evident that not all species exhibit values for all years; however, it is notable that they do demonstrate positive values in kilograms.
+The issue under discussion is resolved by calculating the linear relationship between value and kilograms by species.
+Subsequently, the value of the relationship is associated with the missing points in the time series.
+
+In the case that the relationship between value and kg is non-linear, the missing value was replaced with linear regression without vessel length.
+
+```{r find linear relat, message = T, warning=FALSE, fig.width=18,fig.height=10}
+
+df_full <- euro_species_filtered
+df_model <- df_full[df_full$yearly_value != 0, ]
+
+non_significant_models <- list()
+
+gear_list <- unique(df_model$gear)
+vlength_list <- unique(df_model$vlength)
+
+for (g in seq_along(gear_list)) {
+  for (vl in seq_along(vlength_list)) {
+    
+    gear_value <- gear_list[g]
+    vlen_value <- vlength_list[vl]
+    
+    subset_model <- df_model[df_model$gear == gear_value & 
+                             df_model$vlength == vlen_value, ]
+    
+    species_list <- unique(subset_model$species)
+    
+    plot_list <- list()  # lista per raccogliere i plot
+    
+    for (s in seq_along(species_list)) {
+      
+      species_value <- species_list[s]
+      
+      subset_species_model <- subset_model[subset_model$species == species_value, ]
+      
+      subset_zero <- df_full$gear == gear_value & 
+                     df_full$vlength == vlen_value & 
+                     df_full$species == species_value & 
+                     df_full$yearly_value == 0
+      
+      if (nrow(subset_species_model) >= 2) {
+        
+        model <- lm(yearly_value ~ yearly_kg, data = subset_species_model)
+        fstat <- summary(model)$fstatistic
+        pval <- pf(fstat[1], fstat[2], fstat[3], lower.tail = FALSE)  # calcolo p-value
+        
+        if (!is.na(pval) && pval < 0.05 && any(subset_zero)) {
+          predicted <- predict(model, newdata = df_full[subset_zero, ])
+          df_full$yearly_value[subset_zero] <- predicted
+        } else {
+              non_significant_models[[length(non_significant_models) + 1]] <- data.frame(
+                species = species_value,
+                gear = gear_value,
+                vlength = vlen_value,
+                p_value = ifelse(is.na(pval), NA, round(pval, 5))
+              )
+}
+        
+        # Subset per il plot
+        df_spe <- df_full[df_full$gear == gear_value &
+                          df_full$vlength == vlen_value &
+                          df_full$species == species_value, ]
+        
+        if (nrow(df_spe) > 0) {
+          p <- ggplot(df_spe) +
+            geom_point(aes(x = yearly_kg, y = yearly_value)) +
+            theme_minimal() +
+            ggtitle(paste0("Model: ", gear_value, " - ", vlen_value, " - ", species_value))+
+            theme(plot.title = element_text(size=10))
+          
+          # Aggiungi alla lista
+          plot_list[[length(plot_list) + 1]] <- p
+        }
+      }
+    }
+    
+    # Mostra i plot dopo il ciclo su tutte le specie
+    if (length(plot_list) > 0) {
+      print(grid.arrange(grobs = plot_list, ncol = 8))  # o ncol = 3 se preferisci
+    }
+  }
+}
+if (length(non_significant_models) > 0) {
+  non_significant_df <- do.call(rbind, non_significant_models)
+  print(non_significant_df)
+} else {
+  message("All models were significant.")
+}
+
+
+# %>% 
+#                mutate(euro = tot_fish_weight * tot_fish_value) 
+
+
+```
+
+
+In the case that the relationship between value and kg for [gear-vessel length-species] is non-linear, the missing value was replaced with linear regression for [gear-species].
+
+```{r linear reg gear species, fig.width=12, fig.height=10}
+
+df_full %>% 
+  ggplot()+
+  geom_point(aes(x = yearly_kg, y = yearly_value))+
+  facet_wrap(~gear+species, scales = "free")
+
+no_sig_spe = unique(non_significant_df$species)
+
+df_model_gs <- df_full[df_full$yearly_value != 0 & df_full$species %in% no_sig_spe, ]
+
+non_significant_models <- list()
+
+gear_list <- unique(df_model_gs$gear)
+
+for (g in seq_along(gear_list)) {
+
+    gear_value <- gear_list[g]
+
+    subset_model <- df_model[df_model$gear == gear_value , ]
+    
+    species_list <- unique(subset_model$species)
+    
+    plot_list <- list()  
+    
+    for (s in seq_along(species_list)) {
+      
+      species_value <- species_list[s]
+      
+      subset_species_model <- subset_model[subset_model$species == species_value, ]
+      
+      subset_zero <- df_full$gear == gear_value & 
+                     df_full$species == species_value & 
+                     df_full$yearly_value == 0
+      
+      if (nrow(subset_species_model) >= 2) {
+        
+        model <- lm(yearly_value ~ yearly_kg, data = subset_species_model)
+        fstat <- summary(model)$fstatistic
+        pval <- pf(fstat[1], fstat[2], fstat[3], lower.tail = FALSE)  # calcolo p-value
+        
+        if (!is.na(pval) && pval <= 0.00 && any(subset_zero)) {
+          predicted <- predict(model, newdata = df_full[subset_zero, ])
+          df_full$yearly_value[subset_zero] <- predicted
+        } else {
+              non_significant_models[[length(non_significant_models) + 1]] <- data.frame(
+                species = species_value,
+                gear = gear_value,
+                p_value = ifelse(is.na(pval), NA, round(pval, 5))
+              )
+}
+        
+        df_spe <- df_full[df_full$gear == gear_value &
+                          df_full$species == species_value, ]
+        
+        if (nrow(df_spe) > 0) {
+          p <- ggplot(df_spe) +
+            geom_point(aes(x = yearly_kg, y = yearly_value)) +
+            theme_minimal() +
+            ggtitle(paste0("Model: ", gear_value, " - ", species_value))+
+            theme(plot.title = element_text(size=10))
+          
+          plot_list[[length(plot_list) + 1]] <- p
+        }
+      }
+    }
+    
+    if (length(plot_list) > 0) {
+      print(grid.arrange(grobs = plot_list, ncol = 8))  
+    }
+  }
+
+if (length(non_significant_models) > 0) {
+  non_significant_df <- do.call(rbind, non_significant_models)
+  print(non_significant_df)
+} else {
+  message("All models were significant.")
+}
+
+
+```
+
+
+
+
+
+For no linear models, redefine outlier as the mean of the previous and next year. 
+
+```{r}
+
+
+
+
+
+
+
+
+
+is_outlier <- function(x) {
+  q1 <- quantile(x, 0.25, na.rm = TRUE)
+  q3 <- quantile(x, 0.75, na.rm = TRUE)
+  iqr <- q3 - q1
+  (x < (q1 - 1.5 * iqr)) | (x > (q3 + 1.5 * iqr))
+}
+
+handle_outliers <- function(df, column_name) {
+  df <- df %>%
+    arrange(year) %>%
+    mutate(outlier = is_outlier(.data[[column_name]]))
+  
+  for (i in 1:nrow(df)) {
+    if (df$outlier[i]) {
+      y <- as.numeric(df$year[i])
+      val_prev <- df %>% filter(year == y - 1) %>% pull(column_name)
+      val_next <- df %>% filter(year == y + 1) %>% pull(column_name)
+      
+      if (length(val_prev) == 1 && length(val_next) == 1) {
+        df[[column_name]][i] <- mean(c(val_prev, val_next))
+        df$outlier[i] <- FALSE  
+      }
+    }
+  }
+  
+  df %>% select(-outlier)  
+}
+
+df_cleaned <- df %>%
+  group_by(id, vlength, gear, species) %>%
+  group_modify(~ handle_outliers(.x, "mean_euro")) %>%
+  ungroup() %>%
+  group_by(id, vlength, gear, species) %>%
+  group_modify(~ handle_outliers(.x, "mean_kg")) %>%
+  ungroup()
+```
+
+
+Select only the first 15 species by kg
+
+```{r select species, message=FALSE, warning=FALSE, fig.width=8, fig.height=10}
+df_cleaned %>%
+   group_by(species) %>%
+   summarise(euro = mean(mean_euro), kg = (mean(mean_kg)*1000)) %>%
+   pivot_longer(!species, names_to = "variables", values_to = "count") %>% 
+  
+  ggplot() +
+  geom_bar(aes(x = count, y = reorder(species, count)), stat = "identity")+
+  facet_wrap(~ variables, scales = "free")+
+  ylab("FAO species code")+
+  xlab("")+
+  ggtitle("List of all landed species for the CS")
+           
+             
+               
+ species_sel =
+ df_cleaned %>%
+   group_by(species) %>%
+   summarise(m_kg = mean(mean_kg)) %>%
+   slice_max(m_kg, n = 15) %>%
+   pull(species)
+
+ euro_species_df = df_cleaned %>%
+                   filter(species %in% species_sel)
+ saveRDS(euro_species_df, paste0(fd,"euro_species_df.RData"))
+
+```
+
+
+
+```{r Landing CS,  message=FALSE, warning=FALSE, fig.width=15,fig.height=10}
+for(g in 1: length(Gear)){
+print(euro_species_df %>%
+    filter(gear == Gear[g]) %>% 
+    group_by(species, year, vlength) %>% 
+    summarise(mean_euro = mean(mean_euro)) %>% 
+  ggplot(aes(x = reorder(year, my(year)), y = mean_euro, color = vlength,
+             group = interaction(species, vlength))) +
+  geom_line(size = 1.1) +
+  geom_point() +
+  labs(
+    title = paste0("Time Series of Mean Euro by Species and Vessel Length ",Gear[g]),
+    x = "Year",
+    y = "Mean Euro",
+    color = "Vessel Length",
+    linetype = "Species"
+  ) +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))+
+  facet_wrap(~ species, scales = "free")
+)
+
+  }
+
+```
+
+
+```{r,  message=FALSE, warning=FALSE, fig.width=15,fig.height=10}
+
+FAO_sp = read.xlsx(paste0(wd,"ASFIS_sp_2025.xlsx")) %>% select("Alpha3_Code","Scientific_Name") %>% rename("species" = "Alpha3_Code")
+
+euro_species_df %>%
+   group_by(gear,species) %>%
+   summarise(kg_gear = sum(mean_kg), euro_gear = sum(mean_euro)) %>%
+  group_by(species) %>% 
+  mutate(kg_tot = sum(kg_gear), euro_tot = sum(euro_gear)) %>% 
+  mutate(kg_prop = (kg_gear/kg_tot)*100, euro_prop = (euro_gear/euro_tot)*100) %>%
+  left_join(FAO_sp) %>%
+  mutate(sp_id = paste0(Scientific_Name," (",species,")")) %>% 
+  ggplot() +
+  geom_bar(aes(y = sp_id, x = kg_prop, fill = gear),stat = "identity") +
+  labs(title = "Kg of landing by gear", y = "", x = "Euro") +
+  theme_minimal()+
+  theme(axis.text.y = element_text(face = "italic"))
+```
+
+
+### FDI landings - AER disaggregation by port of landing
+
+```{r disaggregate data by port of landing, message=FALSE, warning=FALSE, fig.width=20, fig.height=15}
+gfw_df <- GFW_effort_port_by_icell %>% 
+  group_by(id, port) %>%
+    summarise(n_track = length(unique(MMSI)), .groups = "drop") %>% 
+  st_drop_geometry()
+
+track_totals <- gfw_df %>%
+  group_by(id) %>%
+  summarise(total_tracks = sum(n_track), .groups = "drop")
+
+gfw_df <- gfw_df %>%
+  left_join(track_totals, by = "id") %>%
+  mutate(track_share = n_track / total_tracks)
+
+gfw_fdi_landing_merged_df <- gfw_df %>%
+  left_join(euro_species_df, by = "id") 
+
+gfw_fdi_landing_merged_df <- gfw_fdi_landing_merged_df %>%
+  mutate(price_shared = mean_euro * track_share)
+
+
+ggplot(data = gfw_fdi_landing_merged_df)+
+  geom_bar(aes(y = port, x = price_shared, fill = port ), stat = "identity")+
+  facet_wrap(~species, scales = "free", ncol = 5)+
+  theme_minimal()
+
+
+```
+
+
+
