@@ -58,7 +58,7 @@ This enabled spatially explicit estimates of GVL at the vessel level.
 
 ![Procedure scheme](images/Procedure_scheme.jpg)
 
-## Testing the script in GSA09
+## 1 Protocol - FDI effort by ices cell
 
 In this session, the methodology for disaggregating data will be systematically explained through the application in a specific area that is the GSA09 (Northern Tyrrhenian Sea). 
 
@@ -84,7 +84,7 @@ wd = "SET YOUR DATA FOLDER DIRECTORY"
 ```
 
 ```{r wd, include=FALSE}
-wd = "C:/Users/Alice/OneDrive - CNR/Documenti - SURIMI-Internal-grp/WP2/" 
+wd = "C:/Users/alice/OneDrive - CNR/Documenti - SURIMI-Internal-grp/WP2/" 
 ```
 
 ```{r library, message=FALSE, warning=FALSE}
@@ -96,9 +96,11 @@ library(ggrepel)
 library(ggridges)
 library(ggspatial)
 library(gfwr)
+library(gridExtra)
 library(gtsummary)
 library(leaflet)
 library(openxlsx)
+library(patchwork)
 library(RColorBrewer)
 library(reshape2)
 library(rnaturalearth)
@@ -131,39 +133,28 @@ GSAa_CS = "GSA9"
 
 ```
 
-### Step 1 - Open and subset FDI data (Effort and Landing)
+### Step 1 - Open and subset FDI data Effort
 
 Open and subset data from FDI by: *Gear type*, *Year*, and *Country*
 
 ```{r upload data, message=FALSE, warning=FALSE, cache = TRUE}
-effort = read.csv(paste0(wd,"/FDI_spatial_data_EU28/EU28/spatial_effort_tableau_pts_EU28.csv")) 
+effort = read.csv(paste0(wd,"FDI_spatial_data_EU28/EU28/spatial_effort_tableau_pts_EU28.csv")) 
 effort = effort %>%  
-         filter(year %in% Year_CS & gear_type %in% Gear_CS & icesname != "") %>%  
+         filter(year %in% Year_CS & gear_type %in% Gear_CS & cscode != "") %>%  
          mutate(totfishdays = as.numeric(totfishdays))
-
-landing = read.csv(paste0(wd,"/FDI_spatial_data_EU28/EU28/spatial_landings_tableau_pts_2021_EU28.csv"))
-landing = landing %>%  
-          filter(year %in% Year_CS & gear_type %in% Gear_CS & icesname != "") %>%
-          mutate(totwghtlandg = as.numeric(totwghtlandg), 
-                 totvallandg = as.numeric(totvallandg))
 
 ```
 
 Subsequently, spatial ICES cells were used to map the total effort and landing data.
 
 ```{r upload spatial data, message=FALSE, warning=FALSE}
-spatial_effort = read_sf(paste0(wd,"/FDI_spatial_data_EU28/EU28/effort_csquares.shp"))
+spatial_effort = read_sf(paste0(wd,"FDI_spatial_data_EU28/EU28/effort_csquares.shp"))
 spatial_effort = spatial_effort %>% 
-                 filter(icesname != is.na(icesname) & icesname != "")
-
-spatial_landing = read_sf(paste0(wd,"/FDI_spatial_data_EU28/EU28/landings_csquares.shp"))
-spatial_landing = spatial_landing %>% 
-                  filter(icesname != is.na(icesname) & icesname != "")
+                 filter(cscode != is.na(cscode) & cscode != "")
 
 #Join data 
 
-effort_sf = st_as_sf(left_join(effort, spatial_effort, by = "icesname"))
-landing_sf = st_as_sf(left_join(landing, spatial_landing, by = "icesname"))
+effort_sf = st_as_sf(left_join(effort, spatial_effort, by = "cscode"))
 
 ```
 
@@ -181,13 +172,8 @@ effort_GSA = effort_sf %>%
             
 effort_GSA = st_intersection(effort_GSA, GSA)
 
-landing_GSA = landing_sf %>% 
-              filter(sub_region == GSAa_CS)
-landing_GSA = st_intersection(landing_GSA, GSA)
-
 
 effort_sf = effort_GSA
-landing_sf = landing_GSA
 
 CS = GSA
 
@@ -204,7 +190,7 @@ ymax = as.numeric(st_bbox(effort_sf)[4])+0.1
 
 ```
 
-#### Total effort and landing coverage for the case study area - resulting from FDI data
+#### Total effort coverage for the case study area - resulting from FDI data
 
 ```{r map GSA, fig.width= 14, fig.height= 8, message=FALSE, warning=FALSE}
 eff = ggplot()+
@@ -220,22 +206,8 @@ eff = ggplot()+
   theme_light()+
   theme(legend.position = "bottom")
 
+print(eff)
 
-
-land = ggplot()+
-  geom_sf(data = landing_sf, aes(fill = log(totwghtlandg)), color = NA)+
-  scale_fill_viridis_c(option = "D",  na.value = "white")+ 
-  geom_sf(data = world)+
-  coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax))+
-  annotation_scale(location = "tl", width_hint = 0.5) +
-  annotation_north_arrow(location = "tl", which_north = "true", 
-                         pad_x = unit(0.75, "in"), pad_y = unit(0.5, "in"),
-                         style = north_arrow_fancy_orienteering) +
-  ggtitle(paste0("FDI Landing_",CS_name,"_",Gear_CS,"_",Year_CS))+
-  theme_light()+
-  theme(legend.position = "bottom")
-
-ggpubr::ggarrange(eff,land, ncol = 2)
 ```
 
 Save all the filtered data in a specific folder fd = "CaseStudy/Data/"
@@ -245,19 +217,12 @@ Save all the filtered data in a specific folder fd = "CaseStudy/Data/"
 fd = "CaseStudy/Data/"
 
 write_sf(effort_sf, paste0(fd,"FDI_effort_CS.shp"))
-write_sf(landing_sf, paste0(fd,"FDI_landing_CS.shp"))
+
 write.csv(
   st_drop_geometry(effort_sf) %>%
-    rename(id = icesname, gear = gear_type, vlength = vessel_length, tot_fish_day = totfishdays), paste0(fd,"FDI_effort_CS.csv"), row.names = F)
-
-write.csv(
-  st_drop_geometry(landing_sf) %>%
-    rename(id = icesname, gear = gear_type, vlength = vessel_length, tot_fish_weight = totwghtlandg, tot_fish_value = totvallandg),
-  paste0(fd,"FDI_landing_CS.csv"), row.names = F)
-
+    rename(id = cscode, gear = gear_type, vlength = vessel_length, tot_fish_day = totfishdays), paste0(fd,"FDI_effort_CS.csv"), row.names = F)
 
 remove(effort)
-remove(landing)
 ```
 
 #### Descriptive analysis Effort
@@ -274,67 +239,15 @@ ggplot()+
   xlab("Total fishing days")+
   ggtitle(paste0("FDI Effort_",CS_name,"_",Gear_CS,"_",Year_CS, "\nby vessel length"))
 
+FDI_CS_data = FDI_effort_CS
 
 ```
 
-#### Descriptive analysis Landing
 
-```{r descriptive Landing CS, fig.height= 12 , fig.width= 10, fig.align='center', message=FALSE, warning=FALSE}
-
-FDI_landing_CS = read.csv(paste0(fd,"FDI_landing_CS.csv")) %>% mutate(quarter = as.character(quarter))
-
-
-land_sum = FDI_landing_CS %>% 
-            group_by(species, vlength, year, quarter) %>% 
-            summarise(kg = sum(tot_fish_weight), euro = sum(tot_fish_value)) %>% 
-            filter(kg > 0) %>% 
-            mutate(log_kg = log(kg+1), tons = kg/1000)
-            
-
-FAO_sp = read.xlsx(paste0(wd,"ASFIS_sp_2025.xlsx"))[,c("Alpha3_Code","Scientific_Name")] %>% rename("species" = "Alpha3_Code")
-
-land_t = land_sum %>%  
-   group_by(vlength,species) %>% 
-   summarise(kg_tot = sum(kg), euro_tot = sum(euro)) %>% 
-   mutate(kg_prop = kg_tot/sum(kg_tot)*100, euro_prop = euro_tot/sum(euro_tot)*100) %>% 
-  filter(kg_prop > 1) %>% 
-  left_join(FAO_sp) %>% 
-  mutate(species_ordered = reorder_within(Scientific_Name, -kg_prop, vlength))
-
-
-  ggplot() +
-  geom_bar(data = land_t , aes(x = species_ordered, y = kg_prop, fill = Scientific_Name),stat = "identity", position = "dodge") +
-    scale_x_reordered()+
-  facet_wrap(~ vlength, nrow = 3, scales = "free_x")+
-  labs(title = "Landings by vessel length (>1%)", x = "", y = "Kg prop") +
-  theme_light()+
-  theme(axis.text.x = element_text(angle = 65, vjust = 1, hjust = 1, face = "italic" ), legend.position = "none")
-
-```
-
-### Step 2 - Join Landing and Effort
-
-```{r join land effort, message=FALSE, warning=FALSE}
-
-FDI_CS_data = left_join(FDI_landing_CS, FDI_effort_CS)
-
-
-```
-
-#### Descriptive analysis Landing - Effort - LPUE
-
-```{r LPUE calculate LPUE, fig.height= 6, fig.width= 10, message=FALSE, warning=FALSE}
-
-FDI_CS_data$LPUE = FDI_CS_data$tot_fish_weight/FDI_CS_data$tot_fish_day
-
-write.csv(FDI_CS_data, paste0(fd,"FDI_CS_data.csv"))
-
-```
-
-### Step 3 - Open and subset AER data
+### Step 2 - Open and subset AER data
 
 ```{r AER data, eval=F, message=FALSE, warning=FALSE}
-AER_FS = read.xlsx(paste0(wd,"STECF 24-07 - EU Fleet Economic and Transversal data/STECF 24 07 - EU Fleet Economic and Transversal data_fleet segment.xlsx"), sheet = 2) %>% 
+AER_FS = read.xlsx(paste0(wd,"STECF_24-07_EU Fleet Economic and Transversal data/STECF 24-07 - EU Fleet Economic and Transversal data_fleet segment level.xlsx"), sheet = 2) %>% 
            filter(year %in% Year_CS & fishing_tech %in% c("DTS") & country_code %in% Country_CS) 
 
 write.csv(AER_FS, paste0(fd,"Economic_data.csv"), row.names = F)
@@ -376,11 +289,11 @@ data_sum = AER_CS %>%
 
 ```
 
-### Step 4 - Join AER with - FDI Effort-Landing
+### Step 3 - Join AER with - FDI Effort-Landing
 
 ```{r AER -Join FDI , message=FALSE,warning=FALSE}
 
-FDI_CS_data = read.csv(paste0(fd,"FDI_CS_data.csv"))
+FDI_CS_data = read.csv(paste0(fd,"FDI_effort_CS.csv")) %>% mutate(quarter = as.character(quarter))
 AER_CS = read.csv(paste0(fd,"Economic_data.csv")) %>% rename(vlength = vessel_length)
 
 
@@ -389,7 +302,7 @@ AER_sub = AER_wide[,c("year", "vlength", "Fishing days", "Days at sea")]
 
 ```
 
-### Step 5 - Find vessels track by Global Fishing Watch (GFW)
+### Step 4 - Find vessels track by Global Fishing Watch (GFW)
 
 #### Extrapolate data
 
@@ -462,7 +375,7 @@ Performs spatial joins quarter-by-quarter to ensure temporal alignment
 ```{r GFW join ices cell by quarter, message=FALSE, warning=FALSE}
  
 FDI_effort_CS_sf_by_quarter = FDI_effort_CS_sf %>%
-                      group_by(quarter,icesnam, ger_typ) %>%
+                      group_by(quarter,cscode, ger_typ) %>%
                       summarise(FDI_tot_fish_day_by_ICES = sum(ttfshdy))
 
 quarter = c("1","2","3","4")
@@ -471,7 +384,7 @@ GFW_effort_CS_sf_grid <- NULL
 for(i in 1:length(quarter)) {
   a <- st_join(
     GFW_effort_CS_sf[which(GFW_effort_CS_sf$quarter %in% quarter[i]), ],
-    FDI_effort_CS_sf_by_quarter[which(FDI_effort_CS_sf_by_quarter$quarter %in% quarter[i]), "icesnam"],
+    FDI_effort_CS_sf_by_quarter[which(FDI_effort_CS_sf_by_quarter$quarter %in% quarter[i]), "cscode"],
     left = T
   )
 
@@ -479,8 +392,8 @@ for(i in 1:length(quarter)) {
 }
   
 GFW_effort_CS_sf_grid = GFW_effort_CS_sf_grid %>% 
-                        filter(!is.na(icesnam)) %>% 
-                        rename(id = icesnam) 
+                        filter(!is.na(cscode)) %>% 
+                        rename(id = cscode) 
 
 
 write_sf(GFW_effort_CS_sf_grid, paste0(fd,"GFW_effort_CS_sf_grid.shp"))
@@ -489,14 +402,8 @@ write.csv(
 
 ```
 
-Coverage FDI vs GFW
-```{r}
 
-```
-
-
-
-### Step 6 - Find port visited by Global Fishing Watch (GFW)
+### Step 5 - Find port visited by Global Fishing Watch (GFW)
 
 Download port visited by GFW database Only for CS vessels
 
@@ -604,9 +511,7 @@ GFW_port_CS %>%
 
 Take in effort only MMSI of the fleet register: we take only vessels present also in the Fleet Register, and we add the vessel length.
 
-```{r fleet register - LOA, message=FALSE, warning=FALSE}
-
-
+```{r clean fleet reg}
 fleetReg = read.csv(paste0(wd,"vesselRegistryListResults.csv"), sep = ";")
 
 fleetReg[fleetReg$Main.fishing.gear %in% c("TBN","OTS", "TBS", "OT"), "Main.fishing.gear"] <- "OTB"
@@ -628,10 +533,25 @@ fleetReg_info = fleetReg %>%
 fleetReg_info$vlength = c("VL0006","VL0612","VL1218", "VL1824", "VL2440", "VL40XX" )[findInterval(fleetReg_info$LOA, c(0,06,12,18,24,40, 100))]
 
 write.csv(fleetReg_info, paste0(fd,"FleetReg_info_CS.csv"), row.names = F)
+```
 
-GFW_port_CS_fReg = GFW_port_CS %>% filter(MMSI %in% fleetReg_info$MMSI)
+We lost ~ 50 vessels because they do not have MMSI associated to the fleet register
+
+```{r fleet register - LOA, message=FALSE, warning=FALSE}
+
+fleetReg_info = read.csv(paste0(fd,"FleetReg_info_CS.csv")) %>% 
+                select(vessel_name, MMSI, Gear, vlength) %>% 
+                mutate(MMSI = as.character(MMSI)) %>% 
+                rename(name_vreg = vessel_name)
+
+GFW_port_CS_fReg = GFW_port_CS %>% 
+                  left_join(fleetReg_info, by = "MMSI") %>% 
+                  filter(MMSI %in% fleetReg_info$MMSI)
+                    
+
 GFW_effort_CS_sf_grid_fReg = read.csv(paste0(fd,"GFW_effort_CS_sf_grid.csv")) %>% 
                               mutate(MMSI = as.character(MMSI)) %>% 
+                              left_join(fleetReg_info, by = "MMSI") %>% 
                               filter(MMSI %in% unique(fleetReg_info$MMSI))
 
 
@@ -863,14 +783,18 @@ So we make last modification:
 ```{r join freg, message= FALSE, warning=FALSE}
 GFW_port_CS = read.csv(paste0(fd,"GFW_port_CS_fReg_coords.csv")) %>% mutate(MMSI = as.character(MMSI))
 
-GFW_port_fREG = GFW_port_CS %>% left_join(fleetReg_info)
+fleetReg_place_reg = read.csv(paste0(fd,"FleetReg_info_CS.csv")) %>%  
+                    select(MMSI, Place.of.registration.name) %>% 
+                    mutate(MMSI = as.character(MMSI))
+
+GFW_port_fREG = GFW_port_CS %>% left_join(fleetReg_place_reg)
 
 ```
 
 ```{r add fleetreg name, message=T, warning=FALSE}
 
 GFW_port_fREG <- GFW_port_fREG %>%
-                  group_by(vessel_name) %>%
+                  group_by(MMSI) %>%
                   mutate(
                     port_count = n_distinct(port),
                     match_port = if_else(port_count > 1, Place.of.registration.name, port),
@@ -885,6 +809,7 @@ setdiff(unique(GFW_port_fREG$final_port), unique(GFW_port_fREG$port))
  GFW_port_fREG <- GFW_port_fREG %>%
           mutate(final_port = case_when(
                       final_port == "ROMA" ~ "FIUMICINO",
+                      final_port == "SAN REMO" ~ "IMPERIA",
                       TRUE ~ final_port ))
  
  setdiff(unique(GFW_port_fREG$final_port), unique(GFW_port_fREG$port))  
@@ -898,15 +823,14 @@ setdiff(unique(GFW_port_fREG$final_port), unique(GFW_port_fREG$port))
                       final_port == "SESTRI LEVANTE" & vessel_name == "JAZZ" ~ "CHIAVARI", 
                       final_port == "SANTA MARGHERITA LIGURE" & vessel_name == "ARDITO" ~ "CHIAVARI",
                       final_port == "SANTA MARGHERITA LIGURE" & vessel_name == "TERESA MADRE" ~ "CHIAVARI",
+                      final_port == "SESTRI LEVANTE" &  vessel_name == "SGIUSEPPE" ~ "CHIAVARI",
                       TRUE ~ final_port ))
  
   setdiff(unique(GFW_port_fREG$final_port), unique(GFW_port_fREG$port)) 
   
   unique(GFW_port_fREG$final_port)
 
-  GFW_port_fREG <- GFW_port_fREG %>%
-                  filter(!port %in% c("LA MADDALENA", "MENTON"))  
-
+  
 ```
 
 ```{r join port coords, message=FALSE, warning=FALSE}
@@ -927,28 +851,28 @@ port_coords = unique(GFW_port_fREG[c("X","Y","port")])
 
 Join vessels by port to find how many vessels are in each port
 
+--> Remove quarter
+
 ```{r number of vessels by port, message=FALSE, warning=FALSE}
-GFW_port_fREG = read_sf(paste0(fd,"GFW_port_CS_fReg_coords.shp")) %>% 
-                    distinct() %>% 
-                   mutate(X_port = st_coordinates(.)[, 1],
-                          Y_port = st_coordinates(.)[, 2],
-                          MMSI = as.character(MMSI)) %>% 
-                    st_drop_geometry()
+GFW_port_fREG = read.csv(paste0(fd,"GFW_port_CS_fReg_coords.csv")) %>% 
+                    select(MMSI, Gear, vlength, port, X, Y) %>% 
+                   mutate(MMSI = as.character(MMSI)) %>% 
+                    unique()
 
 GFW_effort_CS_sf = read_sf(paste0(fd,"GFW_effort_CS_sf_grid.shp")) %>% 
   filter(MMSI %in% unique(GFW_port_fREG$MMSI)) %>% 
   dplyr::select(MMSI, App_F_H, id) %>% 
-  mutate(MMSI = as.character(MMSI)) %>% 
-  group_by(MMSI, id) 
+  mutate(MMSI = as.character(MMSI))
 
 
 GFW_effort_CS_sf =GFW_effort_CS_sf  %>% 
-  left_join(GFW_port_fREG)
+  left_join(GFW_port_fREG, by = "MMSI")
 
 write_sf(GFW_effort_CS_sf, paste0(fd,"GFW_effort_port_by_icell.shp"))
+
 ```
 
-### Step 7 - Disaggregation process
+### Step 6 - Disaggregation process
 
 #### AER disaggregation by ICES cell
 
@@ -970,24 +894,24 @@ AER = read.csv(paste0(fd,"Economic_data_wide.csv")) %>% rename(vssl_ln = vlength
   dplyr::select(c("vssl_ln", "Fishing.days", "Energy.costs", "Gross.value.of.landings"))
   
 FDI_effort_CS_sf = read_sf(paste0(fd,"FDI_effort_CS.shp"))
-FDI_landing_CS_sf = read_sf(paste0(fd,"FDI_landing_CS.shp"))
 
 FDI_id = FDI_effort_CS_sf %>% 
-          group_by(icesnam, vssl_ln ) %>% 
+          group_by(cscode, ger_typ, vssl_ln ) %>% 
           summarise(day = sum(ttfshdy)) %>% 
-          rename(id = icesnam)
+          rename(id = cscode)
 
 FDI_vl = FDI_id %>% 
-          group_by(vssl_ln) %>% 
+          group_by(ger_typ,vssl_ln) %>% 
           mutate(tot_day = sum(day)) %>% 
           st_drop_geometry() %>% 
           ungroup()
 
 FDI_vl <- FDI_vl %>%
+  group_by(ger_typ) %>% 
   mutate(effort_share = day / tot_day)
 
 FDI_vl <- FDI_vl %>%
-          left_join(AER, by = "vssl_ln")
+          left_join(AER, by = c("vssl_ln"))
 
 FDI_vl <- FDI_vl %>%
   mutate(across(c(Fishing.days, Energy.costs, Gross.value.of.landings), ~ .x * effort_share, .names = "{.col}_AER")) %>% 
@@ -1010,14 +934,15 @@ FDI_AER_by_icell = read.csv(paste0(fd,"FDI_AER_by_icell.csv"))
 
 
 GFW_id = GFW_effort_port_by_icell %>% 
-          group_by(id, vssl_ln) %>%  
+          group_by(id, Gear, vssl_ln) %>%  
           summarise(h = sum(App_F_H)) %>% 
           st_drop_geometry()
 
 FDI.AER_id = FDI_AER_by_icell %>% 
-          group_by(id, vssl_ln ) %>% 
+          group_by(id,  ger_typ, vssl_ln ) %>% 
           summarise(day = sum(Fishing.days_AER)) 
 
+### check data effort of FDI and GFW
 
 FDI_GFW = inner_join(GFW_id, FDI_id)                   
 
@@ -1043,40 +968,35 @@ $$
 
 ```{r disaggregate data by ices cell, message=FALSE, warning=FALSE}
 gfw_df = GFW_effort_port_by_icell %>% 
-          group_by(id) %>% 
+          group_by(id, vssl_ln) %>% 
           mutate(n_track = n()) %>% 
           mutate(n_prop = n_track * sum(n_track)) %>% 
           ungroup()
 
 gfw_fdi_merged_df <- gfw_df %>%
-  left_join(FDI_AER_by_icell, by = c("id"))
+                      left_join(FDI_AER_by_icell, by = c("id", "vssl_ln"))
 
 final_df <- gfw_fdi_merged_df %>%
     mutate(across(c(Fishing.days_AER, Energy.costs_AER, Gross.value.of.landings_AER), ~ .x / n_track, .names = "{.col}_by_vessel")) %>% 
   dplyr::select(-c(Fishing.days_AER,Energy.costs_AER,Gross.value.of.landings_AER))
 
-AER_FDI = final_df %>% group_by(id) %>% 
+AER_FDI = final_df %>% group_by(id, vssl_ln) %>% 
   summarise(GFW_H = sum(App_F_H),FDI_days = sum(Fishing.days_AER_by_vessel)) %>% 
 
 ggplot(aes(x = GFW_H, y = FDI_days))+
   geom_point()+
   geom_smooth(method = "lm")+
   theme_bw()+
-  xlab("sum of GFW Fishing hours \nby ices cell and vlength")+
-  ylab("sum of disaggregate FDI-AER fishing days\nby ices cell and vlength")
+  facet_wrap(~ vssl_ln, scale = "free")+
+  xlab("sum of GFW Fishing hours \nby ices cell")+
+  ylab("sum of disaggregate FDI-AER fishing days\nby ices cell")
 
 AER_FDI
 
 
 ```
-
-
-
-
-
 ### Output
 
-bla bla..aggiungi mappe effort e landings
 
 ```{r}
 map_GVL = ggplot()+
@@ -1112,7 +1032,612 @@ final_df_by_ices = FDI_id %>%
 
 final_df_by_ices
 ```
+Save data results
 
+```{r}
+
+final_df = final_df %>% 
+            select(MMSI,App_F_H, id,Gear,vssl_ln,port, X, Y, geometry) %>% 
+            rename(GFW_hours = App_F_H,
+                   cscode = id,
+                   vlength = vssl_ln,
+                   lon_port = X,
+                   lat_port = Y)
+            
+write_sf(final_df, paste0(fd, "output_df_",Year_CS,".shp"))
+  
+
+```
+
+
+
+
+## 2 Protocol - FDI landings (species kg and price) by port
+
+The protocol disaggregate FDI landing data for a time series.
+
+### Step 1 - Open and subset FDI Landing data
+
+Open FDI landing data
+
+
+```{r set year parameters, message=FALSE, warning=FALSE}
+
+Year_CS = c(2014:2022)
+
+
+```
+ 
+
+```{r open FDI, include=FALSE, cache=TRUE}
+
+spatial_landing = read_sf(paste0(wd,"FDI_spatial_data_EU28/EU28/landings_csquares.shp")) %>% 
+                filter(cscode != is.na(cscode) & cscode != "") %>% 
+                 st_intersection(GSA)
+  
+
+
+landing = list()
+
+for (y in 1 : length(Year_CS)){
+
+  land_y = read.csv(paste0(wd,"FDI_spatial_data_EU28/EU28/spatial_landings_tableau_pts_",
+                           Year_CS[y],"_EU28.csv")) %>%
+           filter(year %in% Year_CS & gear_type %in% Gear_CS & cscode %in% spatial_landing$cscode) %>%
+           mutate(totwghtlandg = as.numeric(totwghtlandg), totvallandg = as.numeric(totvallandg))
+
+  landing[[y]] = land_y
+}
+
+names(landing) <- Year_CS
+
+
+
+landing_sf = landing_sf <- purrr::map(landing, ~ .x %>%
+              left_join(spatial_landing, by = "cscode") %>%
+              st_as_sf())
+
+
+```
+
+Total landings coverage for the case study area - resulting from FDI data
+
+```{r plot, message=FALSE, warning=FALSE, fig.width=20,fig.height=20}
+
+#Set parameter for the map
+
+world <- ne_countries(scale = "medium", returnclass = "sf", continent = "europe")
+world = st_transform(world, crs = st_crs(GSA))
+
+xmin = as.numeric(st_bbox(GSA)[1])-0.0001
+xmax = as.numeric(st_bbox(GSA)[3])+0.0001
+ymin = as.numeric(st_bbox(GSA)[2])-0.0001
+ymax = as.numeric(st_bbox(GSA)[4])+0.0001
+
+
+#landing
+
+for(g in 1 : length(Gear_CS)){
+
+l_data = purrr::map(landing_sf, ~ .x %>%
+           filter(gear_type == Gear_CS[g]))
+ 
+plot_list <- list() 
+ 
+ for(y in 1: length(Year_CS)){
+l_plot = l_data[[y]] %>% 
+        group_by(year,gear_type,sub_region,cscode) %>% 
+        summarise(tot_kg = sum(totwghtlandg), tot_value = sum(totvallandg)) %>% 
+       ggplot()+
+         geom_sf(aes(fill = tot_value))+
+         geom_sf(data = world)+
+         coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax))+
+         scale_fill_viridis_c(option = "D")+ 
+         ggtitle(paste0("FDI EU Landings_",Gear_CS[g],"_",Year_CS[y]))+
+         theme_light()
+
+plot_list[[y]] <- l_plot
+ }
+ combined_plot <- wrap_plots(plotlist = plot_list, ncol = 3)
+ print(combined_plot)
+ 
+ }
+
+```
+
+--> Remove first 3 years (2014-2015-2016) because there are few data
+
+Save all the filtered data in a specific folder fd = "CaseStudy/Data/"
+
+```{r save file, message=FALSE, warning=FALSE}
+
+landing_sf =  landing_sf[!(names(landing_sf) %in% c("2014", "2015", "2016"))]
+
+fd_price = "CaseStudy/Data_price/"
+
+saveRDS(landing_sf, paste0(fd_price,"Landing_sf.RData"))
+
+saveRDS(
+  purrr::map(landing_sf, ~ .x %>% 
+               st_drop_geometry() %>% 
+              rename(id = cscode, gear = gear_type, vlength = vessel_length, tot_fish_weight = totwghtlandg,    tot_fish_value = totvallandg)),  
+  paste0(fd,"landing_CS.rData"))
+
+```
+
+
+### Step 2 - Filter and clean landing data
+
+Take only species that have values in all years of the time series
+
+
+```{r Landing CS, message=FALSE, warning=FALSE}
+landing_CS = readRDS(paste0(fd_price,"Landing_CS.RData"))
+
+euro_species = purrr::map(
+               landing_CS, ~ .x %>% 
+               filter(tot_fish_weight != 0)  )
+
+euro_species_df = do.call("rbind", euro_species)
+
+species_all_years <- euro_species_df %>%
+  group_by(gear,vlength,species) %>%  
+  distinct(year, species) %>%
+  summarise(n_years = n_distinct(year), .groups = "drop") %>%
+  filter(n_years == length(unique(euro_species_df$year)))
+
+euro_species_filtered <- euro_species_df %>%
+                         inner_join(species_all_years, by = c("species", "vlength", "gear"))
+
+# remove quarter
+
+euro_species_filtered <- euro_species_filtered %>%  
+                           group_by(year,vlength, gear, id,  species) %>% 
+                           summarise(yearly_kg = mean(tot_fish_weight)*1000, yearly_value = mean(tot_fish_value))
+                           
+```
+
+In the time series check if there are some outlier. 
+
+```{r redefine outlier, message=FALSE, warning=FALSE, fig.width=15,fig.height=8}
+
+df <- euro_species_filtered
+df$year <- as.character(df$year)
+
+vlent <- unique(df$vlength)
+
+empty_cases <- list()
+
+
+for (g in seq_along(Gear_CS)) {
+  for (vl in seq_along(vlent)) {
+    
+    gear_filter <- Gear_CS[g]
+    vlength_filter <- vlent[vl]
+    
+    q_data <- df %>%
+      filter(gear == gear_filter, vlength == vlength_filter)
+    
+    if (nrow(q_data) == 0) next
+    
+    p_data <- q_data %>%
+      group_by(year, species) %>%
+      summarise(svalue = mean(yearly_value), .groups = "drop")
+    
+    zero_rows <- p_data %>% filter(svalue == 0)
+    
+    if (nrow(zero_rows) > 0) {
+      for (i in seq_len(nrow(zero_rows))) {
+        empty_cases[[length(empty_cases) + 1]] <- list(
+          gear = gear_filter,
+          vlength = vlength_filter,
+          species = zero_rows$species[i],
+          year = zero_rows$year[i]
+        )
+      }
+    }
+
+    p <- ggplot(p_data, aes(x = year, y = svalue, group = interaction(species))) +
+      geom_point() +
+      geom_line() +
+      facet_wrap(~ species, scales = "free_y") +
+      theme_minimal() +
+      ggtitle(paste0("Species price time series for ", gear_filter, "_", vlength_filter)) +
+      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+    
+    print(p)
+    
+    q <- ggplot(q_data) +
+      geom_point(aes(x = yearly_kg, y = yearly_value, color = vlength)) +
+      facet_wrap(~ species, scales = "free") +
+      theme_minimal() +
+      ggtitle(paste0("Species price scatter for ", gear_filter, "_", vlength_filter)) +
+      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+    
+    print(q)
+  }
+}
+
+empty_df <- do.call(rbind, lapply(empty_cases, as.data.frame))
+print(empty_df)
+
+```
+
+Some species have zero value for all time series for specific gear and length combinations, so we have decided to remove them.
+
+```{r remove zero time series}
+
+empty_df = empty_df %>%
+  distinct(gear, vlength, species, year) %>%
+  group_by(gear, vlength, species) %>%
+  summarise(n_zero_years = n(), .groups = "drop") %>% 
+  filter(n_zero_years == length(unique(euro_species_filtered$year)))
+
+remove_keys <- paste(empty_df$gear, empty_df$vlength, empty_df$species, sep = "_")
+
+euro_species_clean <- euro_species_filtered %>%
+                      filter(!paste(gear, vlength, species, sep = "_") %in% remove_keys)
+
+```
+
+For other species, it is evident that not all years had values. However, it is notable that there is a positive correlation with kilograms.
+The issue under discussion is resolved by calculating the linear relationship between value and kilograms by species.
+Subsequently, the value of the relationship is associated with the missing points in the time series.
+
+In the case that the relationship between value and kg is non-linear, the missing value was replaced with linear regression without vessel length.
+
+
+```{r find linear relat, message = T, warning=FALSE, fig.width=18,fig.height=10}
+
+
+df_full <- euro_species_clean
+df_model <- df_full[df_full$yearly_value != 0, ]
+
+non_significant_models <- list()
+
+gear_list <- unique(df_model$gear)
+vlength_list <- unique(df_model$vlength)
+
+for (g in seq_along(gear_list)) {
+  for (vl in seq_along(vlength_list)) {
+    
+    gear_value <- gear_list[g]
+    vlen_value <- vlength_list[vl]
+    
+    subset_model <- df_model[df_model$gear == gear_value & 
+                             df_model$vlength == vlen_value, ]
+    
+    species_list <- unique(subset_model$species)
+    
+    for (s in seq_along(species_list)) {
+      
+      species_value <- species_list[s]
+      
+      subset_species_model <- subset_model[subset_model$species == species_value, ]
+      
+      subset_zero <- df_full$gear == gear_value & 
+                     df_full$vlength == vlen_value & 
+                     df_full$species == species_value & 
+                     df_full$yearly_value == 0
+      
+      if (nrow(subset_species_model) >= 2) {
+        
+        model <- lm(yearly_value ~ yearly_kg, data = subset_species_model)
+        model_summary <- summary(model)
+        fstat <- model_summary$fstatistic
+        r_squared <- model_summary$r.squared
+        pval <- pf(fstat[1], fstat[2], fstat[3], lower.tail = FALSE)
+        
+        if (!is.na(pval) && pval < 0.05 && r_squared > 0.4 && any(subset_zero)) {
+          # Previsione e sostituzione
+          df_full[subset_zero, "yearly_value"] <- predict(model, newdata = df_full[subset_zero, ])
+        } else {
+          # Modello non significativo: salva
+          non_significant_models[[length(non_significant_models) + 1]] <- data.frame(
+            species = species_value,
+            gear = gear_value,
+            vlength = vlen_value,
+            p_value = ifelse(is.na(pval), NA, round(pval, 5)),
+            r_squared = round(r_squared, 3)
+          )
+        }
+      }
+    }
+  }
+}
+
+if (length(non_significant_models) > 0) {
+  non_significant_df <- do.call(rbind, non_significant_models)
+  print(non_significant_df)
+} else {
+  message("All models were significant.")
+}
+
+```
+
+
+In the case that the relationship between value and kg for [gear-vessel length-species] is non-linear, the missing value was replaced with linear regression for [gear-species].
+
+```{r linear reg gear species, fig.width=12, fig.height=10}
+
+keys_nosig <- paste(non_significant_df$gear, non_significant_df$species, sep = "_")
+
+df_full %>% 
+  filter(paste(gear, species, sep = "_") %in% keys_nosig) %>% 
+  ggplot()+
+  geom_point(aes(x = yearly_kg, y = yearly_value))+
+  facet_wrap(~gear+species, scales = "free")+
+  theme_minimal()+
+  ggtitle("Find correlation [Species-Gear] for no significant combination [Species-Vlength-Gear]")
+
+```
+
+
+```{r}
+keys_nosig <- paste(non_significant_df$gear, non_significant_df$vlength, non_significant_df$species, sep = "_")
+
+df_model_gs <- df_full %>% 
+  filter(paste(gear, vlength, species, sep = "_") %in% keys_nosig) %>% 
+  filter(yearly_value != 0)
+
+non_significant_models <- list()
+
+gear_list <- unique(df_model_gs$gear)
+
+for (g in seq_along(gear_list)) {
+  
+  gear_value <- gear_list[g]
+  subset_model <- df_model_gs[df_model_gs$gear == gear_value, ]
+  
+  species_list <- unique(subset_model$species)
+    
+    for (s in seq_along(species_list)) {
+      
+      species_value <- species_list[s]
+      subset_species_model <- subset_model[subset_model$species == species_value, ]
+      
+      if (nrow(subset_species_model) >= 2) {
+        
+        model <- lm(yearly_value ~ yearly_kg, data = subset_species_model)
+        fstat <- summary(model)$fstatistic
+        pval <- pf(fstat[1], fstat[2], fstat[3], lower.tail = FALSE)
+        
+        if (!is.na(pval) && pval <= 0.05) {
+          
+          rows_to_update <- which(
+            paste(df_full$gear, df_full$vlength, df_full$species, sep = "_") %in% keys_nosig &
+            df_full$gear == gear_value &
+            df_full$species == species_value &
+            df_full$yearly_value == 0
+          )
+          
+          if (length(rows_to_update) > 0) {
+            predicted <- predict(model, newdata = df_full[rows_to_update, ])
+            df_full$yearly_value[rows_to_update] <- predicted
+          }
+          
+        } else {
+          non_significant_models[[length(non_significant_models) + 1]] <- data.frame(
+            gear = gear_value,
+            species = species_value,
+            p_value = ifelse(is.na(pval), NA, round(pval, 5))
+          )
+        }
+      }
+    }
+  }
+
+
+if (length(non_significant_models) > 0) {
+  non_significant_df <- do.call(rbind, non_significant_models)
+  print(non_significant_df)
+} else {
+  message("All models were significant.")
+}
+```
+
+
+```{r results correlation, fig.width=12, fig.height=10}
+
+for (g in seq_along(Gear_CS)) {
+
+  p_m = df_full %>% 
+  filter(gear == Gear_CS[g]) %>% 
+    filter(yearly_value > 0) %>% 
+  ggplot()+
+  geom_point(aes(x = yearly_kg, y = yearly_value, color = vlength))+
+  facet_wrap(~vlength+species, scales = "free")+
+  theme_minimal()+
+  ggtitle("Positive value in the time series after cleaning")
+  
+  print(p_m)
+}
+  
+
+```
+Now we are ready for disaggregate data by landing port.
+First we remove remaining zero value and we calculate price as: value/kg
+
+```{r final data for disaggregation}
+
+df_full %>% 
+   group_by(species, gear) %>%
+   summarise(mvalue = mean(yearly_value), kg = (mean(yearly_kg))) %>%
+  ggplot() +
+  geom_bar(aes(x = kg, y = reorder_within(species, kg, gear), fill = gear), stat = "identity")+
+  ylab("FAO species code")+
+  facet_wrap(~ gear, scales = "free")+
+  xlab("kg")+
+  ggtitle("List of all landed species for the CS")+
+  scale_y_reordered()+
+  theme_minimal()
+
+species_sel <- df_full %>%
+  group_by(species, gear) %>%
+  summarise(m_kg = mean(yearly_kg), .groups = "drop") %>%
+  group_by(gear) %>%
+  slice_max(m_kg, n = 20) %>%
+  ungroup()  
+
+ FDI_land_spe_filter <- df_full %>%
+                    inner_join(species_sel, by = c("species", "gear")) %>% 
+                    select(-m_kg) %>% 
+                    mutate(price = yearly_value/yearly_kg)
+ 
+```
+
+Some results
+
+```{r plot results, fig.width=15,fig.height=8}
+
+FAO_sp = read.csv(paste0(wd,"ASFIS_sp_2025.csv")) %>% select("Alpha3_Code","Scientific_Name") %>% rename("species" = "Alpha3_Code")
+
+FDI_land_spe_filter$year = as.character(FDI_land_spe_filter$year)
+
+gear_filter = unique(FDI_land_spe_filter$gear)
+
+for (g in seq_along(gear_filter)) {
+
+  print(FDI_land_spe_filter %>% 
+    filter(gear == gear_filter[g]) %>% 
+  group_by(year, vlength, species) %>% 
+  summarise(m_price = mean(price)) %>% 
+  left_join(FAO_sp) %>%
+  mutate(sp_id = paste0(Scientific_Name," (",species,")")) %>% 
+  
+        ggplot(aes(x = year, y = m_price, color = vlength,
+                   group = interaction(species, vlength)
+                   
+                   )) +
+        geom_line(size = 1.1) +
+        geom_point() +
+        facet_wrap(~ sp_id, scales = "free", ncol = 5) +
+        theme_minimal() +
+        ggtitle(paste0("Species price time series for ", gear_filter[g])) +
+        ylab("Species price")+
+        theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+)
+  }
+
+```
+
+```{r}
+for (g in seq_along(gear_filter)) {
+print(
+  FDI_land_spe_filter %>%
+  filter(gear == gear_filter[g]) %>% 
+   group_by(vlength,species) %>%
+   summarise(kg_gear = sum(yearly_kg)) %>%
+  group_by(species) %>% 
+  mutate(kg_tot = sum(kg_gear)) %>% 
+  mutate(kg_prop = (kg_gear/kg_tot)*100) %>%
+  left_join(FAO_sp) %>%
+  mutate(sp_id = paste0(Scientific_Name," (",species,")")) %>% 
+  ggplot() +
+  geom_bar(aes(y = sp_id, x = kg_prop, fill = vlength),stat = "identity") +
+  labs(title = "Kg of landing by vlength", y = "", x = "Kg prop") +
+  theme_minimal()+
+  theme(axis.text.y = element_text(face = "italic")))
+}
+```
+Save data filtered
+
+```{r select species, message=FALSE, warning=FALSE, fig.width=8, fig.height=10}
+
+ saveRDS(FDI_land_spe_filter, paste0(fd_price,"FDI_land_spe_filter.RData"))
+
+```
+
+### Step 3 - Calculate and add price by species
+
+Load dataset containing the number of vessels by port, type of fishing gear used, and vessel length.
+Load port coordinates.
+
+Here we first chech gear code used and change as FDI code.
+
+```{r disaggregate data by port of landing, message=FALSE, warning=FALSE, fig.width=10, fig.height=8}
+
+nvessel_port =  read_sf(paste0(fd,"output_df_2021.shp")) %>% 
+                st_drop_geometry() %>% 
+                select(MMSI, vlength, port, Gear) %>% 
+                mutate(year = "2021") %>% 
+                unique()
+
+port_coords = read_sf(paste0(fd,"output_df_2021.shp")) %>% 
+                st_drop_geometry() %>% 
+                select(port, lon_port, lat_port) %>% 
+                unique()
+  
+```
+
+
+
+```{r}
+
+  
+nvessel_port <- nvessel_port %>%
+                group_by(year, Gear, vlength, port) %>%
+                summarise(n_vessel_port = n())
+
+nvessel_weighted <- nvessel_port %>%
+                     group_by(year, Gear, port) %>% 
+                     mutate(weight = n_vessel_port / sum(n_vessel_port)) %>% 
+                     rename(gear = Gear)
+
+FDI_land_spe_filter = readRDS(paste0(fd_price,"FDI_land_spe_filter.RData")) %>% 
+                      group_by(year, gear, vlength, species) %>% 
+                      summarise(mval = mean(yearly_value), mkg = mean(yearly_kg), mprice = mean(price))  
+                      
+FDI_land_spe_nvessel <- FDI_land_spe_filter %>%
+                         inner_join(nvessel_weighted, by = c("year", "gear", "vlength"))
+
+FDI_land_spe_nvessel <- FDI_land_spe_nvessel %>%
+                          mutate(
+                            mval_by_port = mval * weight,
+                            mkg_by_port = mkg * weight,
+                            mprice_by_port = mprice * weight)
+
+df_port_species <- FDI_land_spe_nvessel %>%
+                    group_by(year, gear, vlength, port, species) %>%
+                    summarise(
+                      mval = sum(mval_by_port, na.rm = TRUE),
+                      mkg  = sum(mkg_by_port, na.rm = TRUE),
+                      mprice = sum(mprice_by_port)) 
+
+
+port_coord =  port_coords %>% 
+              st_as_sf(coords = c("lon_port", "lat_port"), crs = st_crs(GSA))
+
+port_coord %>% 
+ ggplot() +
+  geom_sf(data = world)+
+  geom_label_repel(
+      data = port_coord %>% 
+        mutate(lon = st_coordinates(.)[,1], 
+               lat = st_coordinates(.)[,2]), 
+      aes(x = lon, y = lat, label = port),
+      size = 3,
+      min.segment.length = 0
+    )   +
+  coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax))+
+  theme_minimal()+
+  ggtitle("Map of main port for the CS")
+
+
+df_port_species %>% 
+  group_by(species, gear, vlength) %>% 
+  summarise(mean_price = mean(mprice)) %>% 
+  
+ggplot( aes(y = reorder_within(species, mean_price, interaction(gear, vlength)), x = mean_price, fill = species)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ gear + vlength, scales = "free", ncol = 4) +
+  theme_minimal() +
+  scale_y_reordered() +
+  theme(legend.position = "none")+
+  labs(title = "Average price by species and port", x = "Mean price (€)", y = "Species")
+
+
+```
 
 ## Conclusion
 

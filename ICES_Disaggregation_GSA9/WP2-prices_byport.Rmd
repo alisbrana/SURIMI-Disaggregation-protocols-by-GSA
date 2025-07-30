@@ -549,6 +549,11 @@ euro_species_df %>%
 ### FDI landings - AER disaggregation by port of landing
 
 ```{r disaggregate data by port of landing, message=FALSE, warning=FALSE, fig.width=20, fig.height=15}
+
+GFW_effort_port_by_icell = read_sf(paste0(fd,"GFW_effort_port_by_icell.shp")) %>% 
+  rename(vssl_ln = vlength)
+
+
 gfw_df <- GFW_effort_port_by_icell %>% 
   group_by(id, port) %>%
     summarise(n_track = length(unique(MMSI)), .groups = "drop") %>% 
