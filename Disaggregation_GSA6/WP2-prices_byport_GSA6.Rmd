@@ -1,0 +1,395 @@
+---
+title: "Price disaggregation protocol: from spatial ICES cells to individual ports."
+author: "Sbrana, Sabatella"
+date: "2025-07-30"
+output: 
+  html_document:
+    theme: united
+    toc: true
+    toc_float: true
+    highlight: tango
+  word_document:
+    toc: true
+  pdf_document:
+    toc: true
+editor_options:
+  markdown:
+    wrap: sentence
+always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+The protocol is part of the SURIMI project and is designed to extract the prices of individual species over time for each landing port.
+
+To implement this methodology effectively, two key datasets are required:
+
+1.  The [FDI landing dataset](https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FAD/fdi/FDI_spatial_data_EU28.zip), which provides detailed records of landings over time by year, country, GSA, gear, vessel length and ices-cell.
+
+2.  Dataset containing the number of vessels operating during the same time period, divided by port, type of fishing gear used, and vessel length:
+
+    | year | port_code | gear | vlength | n   |
+    |:-----|:----------|:-----|:--------|:----|
+    | 2013 | ESSCR     | DTS  | VL1218  | 11  |
+    | 2014 | ESSCR     | DTS  | VL1218  | 11  |
+    | 2015 | ESSCR     | DTS  | VL1218  | 10  |
+    | 2016 | ESSCR     | DTS  | VL1218  | 10  |
+
+3.  Ports coordinates:
+
+    | port_code | lon       | lat      |
+    |:----------|:----------|:---------|
+    | ESSCR     | 40.582276 | 0.598944 |
+
+4.  The [FAO Geographical Sub-Areas](https://gfcmsitestorage.blob.core.windows.net/website/5.Data/ArcGIS/GSAs_simplified_updated_division%20(2).zip): Area of application, comprised of the Mediterranean and the Black Sea, as Major Fishing Area 37.
+
+5.  The [FAO ASFIS List of Species for Fisheries](https://www.fao.org/fishery/static/ASFIS/ASFIS_sp.zip) which represents the standard taxonomic reference system for the FAO Statistics Team.
+
+This information is essential to contextualize the landing data and to link fishing effort with species availability and pricing trends at the port level.
+
+## Disaggregation procedure
+
+Save the data input to a folder and set the folder as the data location in the R environment:
+
+```{r workdir }
+wd = "SET YOUR DATA FOLDER DIRECTORY"
+
+```
+
+```{r wd, include=FALSE}
+
+wd = "C:/Users/alice/OneDrive - CNR/Documenti - SURIMI-Internal-grp/General/Deliverable 2.1/Disaggregation_GSA6/Data Input/" 
+
+```
+
+### Data manipulation for a case study area
+
+Users could establish parameters for their case study, which will subsequently inform the procedure.
+
+This study examines the activity of bottom otter trawlers (OTB) and purse seiners (PS) within the Spanish waters of GSA 6.
+
+```{r set CS parameters, message=FALSE, warning=FALSE}
+
+CS_name = "FAO GSA06 "
+Gear = c("OTB", "PS")
+Year = c(2013:2022)
+Country = c("ESP")
+GSAa_CS = c("GSA6")
+GSAs_CS = c("GSA06")
+
+```
+
+```{r library, warning=FALSE,message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(openxlsx)
+library(paletteer)
+library(patchwork)
+library(reshape2)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(sf)
+library(tidyverse)
+library(tidytext)
+library(webr)
+library(webshot2)
+```
+
+### Step 1 - Open and subset FDI Landing data
+
+Open and subset data from FDI by: *Gear type*, *Year*, and *Country* The GSA polygon was used to subset spatial landings.
+
+```{r open FDI, eval = TRUE, include=FALSE, cache=TRUE}
+GSA = read_sf(paste0(wd,"GSAs_simplified.shp")) %>%
+       filter(SECT_COD == GSAs_CS)
+
+
+spatial_landing = read_sf(paste0(wd,"FDI_spatial_data_EU28/EU28/landings_csquares.shp")) %>% 
+                  st_intersection(GSA)
+  
+
+
+landing = list()
+
+for (y in 1 : length(Year)){
+
+  land_y = read.csv(paste0(wd,"FDI_spatial_data_EU28/EU28/spatial_landings_tableau_pts_",
+                           Year[y],"_EU28.csv")) %>%
+           filter(year %in% Year & gear_type %in% Gear & cscode %in% spatial_landing$cscode) %>%
+           mutate(totwghtlandg = as.numeric(totwghtlandg), totvallandg = as.numeric(totvallandg))
+
+  landing[[y]] = land_y
+}
+
+names(landing) <- Year
+
+
+
+landing_sf = landing_sf <- purrr::map(landing, ~ .x %>%
+              left_join(spatial_landing, by = "cscode") %>%
+              st_as_sf())
+
+
+```
+
+Total landings coverage for the case study area - resulting from FDI data
+
+```{r plot CS, message=FALSE, warning=FALSE, fig.width=20,fig.height=20}
+
+#Set parameter for the map
+world <- ne_countries(scale = "medium", returnclass = "sf", continent = "europe")
+world = st_transform(world, crs = st_crs(GSA))
+
+xmin = as.numeric(st_bbox(GSA)[1])-0.0001
+xmax = as.numeric(st_bbox(GSA)[3])+0.0001
+ymin = as.numeric(st_bbox(GSA)[2])-0.0001
+ymax = as.numeric(st_bbox(GSA)[4])+0.0001
+
+
+#landing
+
+for(g in 1 : length(Gear)){
+
+l_data = purrr::map(landing_sf, ~ .x %>%
+           filter(gear_type == Gear[g]))
+ 
+plot_list <- list() 
+ 
+ for(y in 1: length(Year)){
+l_plot = l_data[[y]] %>% 
+        group_by(year,gear_type,sub_region,cscode) %>% 
+        summarise(tot_kg = sum(totwghtlandg), tot_value = sum(totvallandg)) %>% 
+       ggplot()+
+         geom_sf(aes(fill = tot_value))+
+         geom_sf(data = world)+
+         coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax))+
+         scale_fill_viridis_c(option = "D")+ 
+         ggtitle(paste0("FDI EU Landings_",Gear[g],"_",Year[y]))+
+         theme_light()
+
+plot_list[[y]] <- l_plot
+ }
+ combined_plot <- wrap_plots(plotlist = plot_list, ncol = 3)
+ print(combined_plot)
+ 
+  cat("-----")
+ }
+
+```
+
+Save all the filtered data in a specific folder fd = "CaseStudy/"
+
+```{r save file, message=FALSE, warning=FALSE}
+
+fd = "CaseStudy/"
+
+saveRDS(landing_sf, paste0(fd,"Landing_sf.RData"))
+
+saveRDS(
+  purrr::map(landing_sf, ~ .x %>% 
+               st_drop_geometry() %>% 
+              rename(id = cscode, gear = gear_type, vlength = vessel_length, tot_fish_weight = totwghtlandg,    tot_fish_value = totvallandg)),  
+  paste0(fd,"landing_CS.rData"))
+
+
+
+```
+
+### Step 2 - Filter and clean landing data
+
+This R script processes landing data to identify key species consistently landed over time, and calculates average weights, values, and prices.
+It focuses on analyzing catch data by gear type and vessel length, and select top 15 species by landed weight for each gear.
+
+```{r Filter Landing CS, message=FALSE, warning=FALSE, fig.height= 12, fig.width=8}
+landing_CS = readRDS(paste0(fd,"Landing_CS.RData"))
+
+euro_species = purrr::map(
+               landing_CS, ~ .x %>% 
+               filter(tot_fish_weight != 0) 
+               )
+
+euro_species_df = do.call("rbind", euro_species)
+
+species_all_years <- euro_species_df %>%
+  group_by(gear,vlength,species) %>%  
+  distinct(year, species) %>%
+  summarise(n_years = n_distinct(year), .groups = "drop") %>%
+  filter(n_years == length(unique(euro_species_df$year)))
+
+euro_species_filtered <- euro_species_df %>%
+                         inner_join(species_all_years, by = c("species", "vlength", "gear"))
+
+# remove quarter
+
+euro_species_filtered <- euro_species_filtered %>%  
+                           group_by(year,vlength, gear, id,  species) %>% 
+                           summarise(yearly_kg = mean(tot_fish_weight)*1000, yearly_value = mean(tot_fish_value))
+                           
+euro_species_filtered %>%
+   group_by(species, gear) %>%
+   summarise(mvalue = mean(yearly_value), kg = (mean(yearly_kg))) %>%
+  ggplot() +
+  geom_bar(aes(x = kg, y = reorder_within(species, kg, gear), fill = gear), stat = "identity")+
+  ylab("FAO species code")+
+  facet_wrap(~ gear, scales = "free")+
+  xlab("kg")+
+  ggtitle("List of all landed species for the CS")+
+  scale_y_reordered()+
+  theme_minimal()
+           
+
+ species_sel <- euro_species_filtered %>%
+  group_by(species, gear) %>%
+  summarise(m_kg = mean(yearly_kg), .groups = "drop") %>%
+  group_by(gear) %>%
+  slice_max(m_kg, n = 15) %>%
+  ungroup()  
+
+ FDI_land_spe_filter <- euro_species_filtered %>%
+                    inner_join(species_sel, by = c("species", "gear")) %>% 
+                    select(-m_kg) %>% 
+                    mutate(price = yearly_value/yearly_kg)
+```
+
+Some results:
+
+```{r results, message=FALSE, warning=FALSE, fig.width=15,fig.height=8}
+
+FAO_sp = read.csv(paste0(wd,"ASFIS_sp_2025.csv")) %>% select("Alpha3_Code","Scientific_Name") %>% rename("species" = "Alpha3_Code")
+
+FDI_land_spe_filter$year = as.character(FDI_land_spe_filter$year)
+
+gear_filter = unique(FDI_land_spe_filter$gear)
+
+for (g in seq_along(gear_filter)) {
+
+  print(FDI_land_spe_filter %>% 
+    filter(gear == gear_filter[g]) %>% 
+  group_by(year, vlength, species) %>% 
+  summarise(m_price = mean(price)) %>% 
+  left_join(FAO_sp) %>%
+  mutate(sp_id = paste0(Scientific_Name," (",species,")")) %>% 
+  
+        ggplot(aes(x = year, y = m_price, color = vlength,
+                   group = interaction(species, vlength)
+                   
+                   )) +
+        geom_line(size = 1.1) +
+        geom_point() +
+        facet_wrap(~ sp_id, scales = "free", ncol = 5) +
+        theme_minimal() +
+        ggtitle(paste0("Species price time series for ", gear_filter[g])) +
+        ylab("Species price")+
+        theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+)
+}
+
+
+FDI_land_spe_filter %>%
+   group_by(gear,species) %>%
+   summarise(kg_gear = sum(yearly_kg)) %>%
+  group_by(species) %>% 
+  mutate(kg_tot = sum(kg_gear)) %>% 
+  mutate(kg_prop = (kg_gear/kg_tot)*100) %>%
+  left_join(FAO_sp) %>%
+  mutate(sp_id = paste0(Scientific_Name," (",species,")")) %>% 
+  ggplot() +
+  geom_bar(aes(y = sp_id, x = kg_prop, fill = gear),stat = "identity") +
+  labs(title = "Kg of landing by gear", y = "", x = "Kg prop") +
+  theme_minimal()+
+  theme(axis.text.y = element_text(face = "italic"))
+
+```
+
+Save data filtered
+
+```{r select species, message=FALSE, warning=FALSE, fig.width=8, fig.height=10}
+
+ saveRDS(FDI_land_spe_filter, paste0(fd,"FDI_land_spe_filter.RData"))
+
+```
+
+### Step 3 - Calculate and add price by species
+
+Load dataset containing the number of vessels by port, type of fishing gear used, and vessel length.
+Load port coordinates.
+
+Here we first chech gear code used and change as FDI code.
+
+```{r disaggregate data by port of landing, message=FALSE, warning=FALSE, fig.width=10, fig.height=8}
+
+nvessel_port = read.csv(paste0(wd,"num_vessels_per_year_port_gear_length.csv")) %>% 
+                rename( gear = gear_code,
+                        vlength = vessel_length) %>% 
+                mutate(year = as.character(year))
+
+nvessel_port$gear[which(nvessel_port$gear == "DTS")] <- "OTB"
+  
+total_n <- nvessel_port %>%
+  group_by(year, gear, vlength) %>%
+  summarise(total_n = sum(n))
+
+nvessel_weighted <- nvessel_port %>%
+  left_join(total_n, by = c("year", "gear", "vlength")) %>%
+  mutate(weight = n / total_n)
+
+FDI_land_spe_filter = readRDS(paste0(fd,"FDI_land_spe_filter.RData")) %>% 
+                      group_by(year, gear, vlength, species) %>% 
+                      summarise(mval = mean(yearly_value), mkg = mean(yearly_kg), mprice = mean(price))  
+                      
+FDI_land_spe_nvessel <- FDI_land_spe_filter %>%
+                         inner_join(nvessel_weighted, by = c("year", "gear", "vlength"))
+
+FDI_land_spe_nvessel <- FDI_land_spe_nvessel %>%
+                          mutate(
+                            mval_by_port = mval * weight,
+                            mkg_by_port = mkg * weight,
+                            mprice_by_port = mprice * weight)
+
+df_port_species <- FDI_land_spe_nvessel %>%
+                    group_by(year, gear, vlength, port_code, species) %>%
+                    summarise(
+                      mval = sum(mval_by_port, na.rm = TRUE),
+                      mkg  = sum(mkg_by_port, na.rm = TRUE),
+                      mprice = sum(mprice_by_port)) 
+
+
+port_coord = read.csv(paste0(wd,"ports.csv")) %>% 
+              st_as_sf(coords = c("lon", "lat"), crs = st_crs(GSA))
+
+port_coord %>% 
+ ggplot() +
+  geom_sf(data = world)+
+  geom_label_repel(
+      data = port_coord %>% 
+        mutate(lon = st_coordinates(.)[,1], 
+               lat = st_coordinates(.)[,2]), 
+      aes(x = lon, y = lat, label = port_code),
+      size = 3,
+      min.segment.length = 0
+    )   +
+  coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax))+
+  theme_minimal()+
+  ggtitle("Map of main port for the CS")
+
+
+df_port_species %>% 
+  group_by(species, gear, vlength) %>% 
+  summarise(mean_price = mean(mprice)) %>% 
+  
+ggplot( aes(y = reorder_within(species, mean_price, interaction(gear, vlength)), x = mean_price, fill = species)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ gear + vlength, scales = "free", ncol = 4) +
+  theme_minimal() +
+  scale_y_reordered() +
+  theme(legend.position = "none")+
+  labs(title = "Average price by species and port", x = "Mean price (€)", y = "Species")
+
+
+
+```
