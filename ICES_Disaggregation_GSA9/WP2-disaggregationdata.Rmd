@@ -1095,7 +1095,8 @@ FDI_AER_nvessel <- FDI_AER_nvessel %>%
 print(
   FDI_AER_nvessel %>% 
     ggplot()+
-    geom_bar(aes(y = reorder(port,GVL_by_port), x = GVL_by_port, fill = vssl_ln), stat = "identity", position = "dodge")+
+    geom_bar(aes(y = reorder_within(port,GVL_by_port, vssl_ln), x = GVL_by_port, fill = vssl_ln), stat = "identity")+
+    facet_wrap(~ vssl_ln, scales = "free_x")+
     scale_y_reordered() +
     theme_minimal()+
     ylab("")
