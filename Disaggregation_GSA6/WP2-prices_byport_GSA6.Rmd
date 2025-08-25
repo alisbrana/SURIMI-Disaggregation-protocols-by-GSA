@@ -62,7 +62,7 @@ wd = "SET YOUR DATA FOLDER DIRECTORY"
 
 ```{r wd, include=FALSE}
 
-wd = "C:/Users/alice/OneDrive - CNR/Documenti - SURIMI-Internal-grp/General/Deliverable 2.1/Disaggregation_GSA6/Data Input/" 
+wd = "C:/Users/alice/OneDrive - CNR/Documenti - SURIMI-Internal-grp/WP2/" 
 
 ```
 
@@ -87,6 +87,7 @@ GSAs_CS = c("GSA06")
 library(dplyr)
 library(ggplot2)
 library(ggrepel)
+library(ggpmisc)
 library(openxlsx)
 library(paletteer)
 library(patchwork)
@@ -321,9 +322,9 @@ Load port coordinates.
 
 Here we first chech gear code used and change as FDI code.
 
-```{r disaggregate data by port of landing, message=FALSE, warning=FALSE, fig.width=10, fig.height=8}
+```{r disaggregate data by port of landing - compare pre - post disaggregation, message=FALSE, warning=FALSE, fig.width=18, fig.height=15}
 
-nvessel_port = read.csv(paste0(wd,"num_vessels_per_year_port_gear_length.csv")) %>% 
+nvessel_port = read.csv("Data Input/num_vessels_per_year_port_gear_length.csv") %>% 
                 rename( gear = gear_code,
                         vlength = vessel_length) %>% 
                 mutate(year = as.character(year))
@@ -353,26 +354,67 @@ FDI_land_spe_nvessel <- FDI_land_spe_nvessel %>%
 
 df_port_species <- FDI_land_spe_nvessel %>%
                     group_by(year, gear, vlength, port_code, species) %>%
-                    summarise(
-                      mval = sum(mval_by_port, na.rm = TRUE),
-                      mkg  = sum(mkg_by_port, na.rm = TRUE),
-                      mprice = sum(mprice_by_port)) 
+                    select(mval_by_port, mkg_by_port, mprice_by_port, mval, mkg, mprice)
 
 
-port_coord = read.csv(paste0(wd,"ports.csv")) %>% 
+for (g in seq_along(gear_filter)) {
+
+  print(df_port_species %>% 
+          group_by(year, gear, vlength, species) %>% 
+          summarise(mprice_by_port_tot = sum(mprice_by_port), mprice = sum(mprice)) %>% 
+    filter(gear == gear_filter[g]) %>% 
+
+       ggplot(aes(x = mprice, y = mprice_by_port_tot, fill = vlength, color = vlength))+
+        geom_point()+
+        geom_smooth(method = "lm")+
+        facet_wrap(~ species, scale = "free")+
+        theme_minimal() +
+        ggtitle(paste0("Species price for ", gear_filter[g]))+
+        stat_fit_glance(method = "lm",
+                    label.x = "right",
+                    label.y = "bottom",
+                    method.args = list(formula = y ~ x),
+                    mapping = aes(label = sprintf('italic(r)^2~"="~%.3f~~italic(P)~"="~%.2g',
+                                  after_stat(r.squared), after_stat(p.value))),
+                    parse = TRUE,
+                    show.legend = FALSE) +
+      ylab("Resulting species price by disaggregation procedure")+
+      xlab("Pre-processed species price")
+  )
+       
+  }
+  # }
+
+
+
+
+
+```
+
+
+
+```{r disaggregate data by port of landing, message=FALSE, warning=FALSE, fig.width=10, fig.height=8}
+
+
+port_coord = read.csv("Data Input/ports.csv") %>% 
               st_as_sf(coords = c("lon", "lat"), crs = st_crs(GSA))
 
-port_coord %>% 
+df_port_species %>% 
+  group_by(port_code) %>% 
+  summarise(port_price = sum(mprice_by_port), port_kg = sum(mkg_by_port)) %>%
+  left_join(port_coord) %>% 
+  st_as_sf() %>% 
+  mutate(lon = st_coordinates(.)[,1], 
+               lat = st_coordinates(.)[,2]) %>% 
+
  ggplot() +
   geom_sf(data = world)+
   geom_label_repel(
-      data = port_coord %>% 
-        mutate(lon = st_coordinates(.)[,1], 
-               lat = st_coordinates(.)[,2]), 
-      aes(x = lon, y = lat, label = port_code),
+      aes(x = lon, y = lat, label = port_code, fill = port_price),
       size = 3,
       min.segment.length = 0
     )   +
+  scale_fill_gradient(low = "yellow", high = "red", na.value = NA)+
   coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax))+
   theme_minimal()+
   ggtitle("Map of main port for the CS")
@@ -393,3 +435,4 @@ ggplot( aes(y = reorder_within(species, mean_price, interaction(gear, vlength)),
 
 
 ```
+

@@ -3,13 +3,13 @@ title: "SURIMI WP2 - Data Disaggregation protocols"
 author: "Sbrana, Sabatella"
 date: "`r Sys.Date()`"
 output:
+  word_document:
+    toc: true
   html_document:
     theme: united
     toc: true
     toc_float: true
     highlight: tango
-  word_document:
-    toc: true
   pdf_document:
     toc: true
 editor_options:
@@ -1675,6 +1675,25 @@ ggplot( aes(y = reorder_within(species, mean_price, interaction(gear, vlength)),
 
 
 ```
+
+Data quality check - Comparison FDI price before and after disaggregation procedure
+
+```{r}
+
+FDI_compare = FDI_land_spe_nvessel %>% 
+  group_by(year, gear, vlength, species) %>%
+  summarise(mprice = mean(mprice),
+            mprice_by_port = mean(mprice_by_port))
+  ggplot()+
+  geom_point(aes(x = mprice, y = mprice_by_port))+
+    geom_smooth(aes(x = mprice, y = mprice_by_port, color = species,fill = species),method = "lm") +
+  facet_wrap(~ species, scales = "free")+
+  theme_minimal()
+
+
+```
+
+
 
 ## Conclusion
 
