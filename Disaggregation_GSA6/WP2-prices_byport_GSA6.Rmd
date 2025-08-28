@@ -322,7 +322,7 @@ Load port coordinates.
 
 Here we first chech gear code used and change as FDI code.
 
-```{r disaggregate data by port of landing - compare pre - post disaggregation, message=FALSE, warning=FALSE, fig.width=18, fig.height=15}
+```{r disaggregate data by port of landing - compare pre - post disaggregation, message=FALSE, warning=FALSE, fig.width=14, fig.height=14}
 
 nvessel_port = read.csv("Data Input/num_vessels_per_year_port_gear_length.csv") %>% 
                 rename( gear = gear_code,
@@ -383,11 +383,6 @@ for (g in seq_along(gear_filter)) {
   )
        
   }
-  # }
-
-
-
-
 
 ```
 
