@@ -3,13 +3,13 @@ title: "Price disaggregation protocol: from spatial ICES cells to individual por
 author: "Sbrana, Sabatella"
 date: "2025-07-30"
 output: 
-  word_document:
-    toc: true
   html_document:
     theme: united
     toc: true
     toc_float: true
     highlight: tango
+  word_document:
+    toc: true
   pdf_document:
     toc: true
 editor_options:
@@ -316,11 +316,17 @@ Save data filtered
 
 After the filtering and selection steps, a dataset containing the number of vessels per port, fishing gear type, and vessel length was loaded and used to proportionally allocate landed kilograms and values by species at the port level. 
 For each port, gear, and vessel length, the relative share number of vessel was calculated by dividing the number of vessels in each category by the total number of vessels present in that port. This produced the weights used to distribute landing values and quantities across ports.
-〖weight〗_((g,l,p) )=  ( 〖n.vessel by port〗_((g,l,p)))/(∑▒〖 〖n.vessel by port〗_((g,l,p)) 〗)
-Where g is the gear type, l is the vessel length, p is the port, and s is the species.
-The previously calculated weights were then joined with the species price resulting dataset, allowing landings to be distributed across ports. Following this process, the weighted price by species were calculated (Figure 26).
-〖Price by port〗_((g,l,p,s))= 〖Price〗_((g,l,s))*〖weight〗_((g,l,p))
-Where g is the gear type, l is the vessel length, p is the port, and s is the species.
+$$
+\text{weight}_{(g,l,p)} = \frac{\text{n.vessel by port}_{(g,l,p)}}{\sum \text{n.vessel by port}_{(g,l,p)}}
+$$
+*Where g is the gear type, l is the vessel length, p is the port, and s is the species.*
+
+The previously calculated weights were then joined with the species price resulting dataset, allowing landings to be distributed across ports. Following this process, the weighted price by species were calculated.
+$$
+\text{Price by port}_{(g,l,p,s)} = \text{Price}_{(g,l,s)} \cdot \text{weight}_{(g,l,p)}
+$$
+*Where g is the gear type, l is the vessel length, p is the port, and s is the species.*
+
 As shown, the results are compared before and after this disaggregation, based on the number of vessels in each port.
 The data were then aggregated and reported by port as the total value of the landed catch. The same information was also presented as species-specific prices by gear and vessel length.
 
