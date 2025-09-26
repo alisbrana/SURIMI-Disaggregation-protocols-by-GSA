@@ -3,13 +3,13 @@ title: "Price disaggregation protocol: from spatial ICES cells to individual por
 author: "Sbrana, Sabatella"
 date: "2025-07-30"
 output: 
+  word_document:
+    toc: true
   html_document:
     theme: united
     toc: true
     toc_float: true
     highlight: tango
-  word_document:
-    toc: true
   pdf_document:
     toc: true
 editor_options:
@@ -49,7 +49,7 @@ To implement this methodology effectively, two key datasets are required:
 
 5.  The [FAO ASFIS List of Species for Fisheries](https://www.fao.org/fishery/static/ASFIS/ASFIS_sp.zip) which represents the standard taxonomic reference system for the FAO Statistics Team.
 
-This information is essential to contextualize the landing data and to link fishing effort with species availability and pricing trends at the port level.
+This information is crucial for providing context to the landing data and for connecting fishing effort with species availability and price patterns at the port level.
 
 ## Disaggregation procedure
 
@@ -68,9 +68,7 @@ wd = "C:/Users/alice/OneDrive - CNR/Documenti - SURIMI-Internal-grp/WP2/"
 
 ### Data manipulation for a case study area
 
-Users could establish parameters for their case study, which will subsequently inform the procedure.
-
-This study examines the activity of bottom otter trawlers (OTB) and purse seiners (PS) within the Spanish waters of GSA 6.
+Users could establish parameters for their case study, which will subsequently inform the procedure. This study examined the activity of bottom otter trawlers (OTB) and purse seiners (PS) within the Spanish waters of GSA 6.
 
 ```{r set CS parameters, message=FALSE, warning=FALSE}
 
@@ -103,14 +101,14 @@ library(webshot2)
 
 ### Step 1 - Open and subset FDI Landing data
 
-Open and subset data from FDI by: *Gear type*, *Year*, and *Country* The GSA polygon was used to subset spatial landings.
+The FDI data were opened and filtered by gear type, year, and country. The GSA polygon was then used to extract spatial landings for Bottom Otter Trawlers (OTB) and Purse Seiners (PS). Figures present selected results showing the total landing values by gear type.
 
 ```{r open FDI, eval = TRUE, include=FALSE, cache=TRUE}
 GSA = read_sf(paste0(wd,"GSAs_simplified.shp")) %>%
        filter(SECT_COD == GSAs_CS)
 
 
-spatial_landing = read_sf(paste0(wd,"FDI_spatial_data_EU28/EU28/landings_csquares.shp")) %>% 
+spatial_landing = read_sf(paste0(wd,"AER and FDI datasets (October 24)/FDI_spatial_data_EU28/EU28/landings_csquares.shp")) %>% 
                   st_intersection(GSA)
   
 
@@ -119,7 +117,7 @@ landing = list()
 
 for (y in 1 : length(Year)){
 
-  land_y = read.csv(paste0(wd,"FDI_spatial_data_EU28/EU28/spatial_landings_tableau_pts_",
+  land_y = read.csv(paste0(wd,"AER and FDI datasets (October 24)/FDI_spatial_data_EU28/EU28/spatial_landings_tableau_pts_",
                            Year[y],"_EU28.csv")) %>%
            filter(year %in% Year & gear_type %in% Gear & cscode %in% spatial_landing$cscode) %>%
            mutate(totwghtlandg = as.numeric(totwghtlandg), totvallandg = as.numeric(totvallandg))
@@ -138,9 +136,8 @@ landing_sf = landing_sf <- purrr::map(landing, ~ .x %>%
 
 ```
 
-Total landings coverage for the case study area - resulting from FDI data
 
-```{r plot CS, message=FALSE, warning=FALSE, fig.width=20,fig.height=20}
+```{r plot CS, message=FALSE, warning=FALSE, fig.width=20,fig.height=20, fig.cap= "Total landings coverage for the case study area - resulting from FDI data"}
 
 #Set parameter for the map
 world <- ne_countries(scale = "medium", returnclass = "sf", continent = "europe")
@@ -203,10 +200,9 @@ saveRDS(
 
 ### Step 2 - Filter and clean landing data
 
-This R script processes landing data to identify key species consistently landed over time, and calculates average weights, values, and prices.
-It focuses on analyzing catch data by gear type and vessel length, and select top 15 species by landed weight for each gear.
+Landing data were processed to identify the key species consistently landed over time and to calculate their average weights, values, and prices. The analysis focuses on catch data by gear type and vessel length (Figure 4) and highlights the top 15 species by landed weight for each gear. Figure 5 presented the time-series of landing values for these selected species, while Figure 6 illustrated the landed kilograms of each species proportionally by gear type.
 
-```{r Filter Landing CS, message=FALSE, warning=FALSE, fig.height= 12, fig.width=8}
+```{r Filter Landing CS, message=FALSE, warning=FALSE, fig.height= 12, fig.width=8, fig.cap="FDI landing species by Gear (OTB and PS) for the case study area (GSA6)"}
 landing_CS = readRDS(paste0(fd,"Landing_CS.RData"))
 
 euro_species = purrr::map(
@@ -243,6 +239,7 @@ euro_species_filtered %>%
   scale_y_reordered()+
   theme_minimal()
            
+ggsave(filename = "Result/land_spe.jpeg", height = 12)
 
  species_sel <- euro_species_filtered %>%
   group_by(species, gear) %>%
@@ -317,10 +314,16 @@ Save data filtered
 
 ### Step 3 - Calculate and add price by species
 
-Load dataset containing the number of vessels by port, type of fishing gear used, and vessel length.
-Load port coordinates.
+After the filtering and selection steps, a dataset containing the number of vessels per port, fishing gear type, and vessel length was loaded and used to proportionally allocate landed kilograms and values by species at the port level. 
+For each port, gear, and vessel length, the relative share number of vessel was calculated by dividing the number of vessels in each category by the total number of vessels present in that port. This produced the weights used to distribute landing values and quantities across ports.
+〖weight〗_((g,l,p) )=  ( 〖n.vessel by port〗_((g,l,p)))/(∑▒〖 〖n.vessel by port〗_((g,l,p)) 〗)
+Where g is the gear type, l is the vessel length, p is the port, and s is the species.
+The previously calculated weights were then joined with the species price resulting dataset, allowing landings to be distributed across ports. Following this process, the weighted price by species were calculated (Figure 26).
+〖Price by port〗_((g,l,p,s))= 〖Price〗_((g,l,s))*〖weight〗_((g,l,p))
+Where g is the gear type, l is the vessel length, p is the port, and s is the species.
+As shown, the results are compared before and after this disaggregation, based on the number of vessels in each port.
+The data were then aggregated and reported by port as the total value of the landed catch. The same information was also presented as species-specific prices by gear and vessel length.
 
-Here we first chech gear code used and change as FDI code.
 
 ```{r disaggregate data by port of landing - compare pre - post disaggregation, message=FALSE, warning=FALSE, fig.width=14, fig.height=14}
 
@@ -381,7 +384,7 @@ for (g in seq_along(gear_filter)) {
       ylab("Resulting species price by disaggregation procedure")+
       xlab("Pre-processed species price")
   )
-       
+  ggsave(filename = paste0("Result/species_prices_",gear_filter[g],".jpeg"), width = 30, height = 25, units = "cm", dpi = 300)     
   }
 
 ```
