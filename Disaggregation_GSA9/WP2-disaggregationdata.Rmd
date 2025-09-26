@@ -3,13 +3,13 @@ title: "SURIMI WP2 - Data Disaggregation protocols"
 author: "Sbrana, Sabatella"
 date: "`r Sys.Date()`"
 output:
-  word_document:
-    toc: true
   html_document:
     theme: united
     toc: true
     toc_float: true
     highlight: tango
+  word_document:
+    toc: true
   pdf_document:
     toc: true
 editor_options:
@@ -130,10 +130,12 @@ GSAa_CS = "GSA9"
 
 ### Step 1 - Open and subset FDI data Effort
 
-Open and subset data from FDI by: *Gear type*, *Year*, and *Country*
+Users could establish parameters for their case study, which will subsequently inform the procedure.
+Here we test Italian Bottom Otter Trawlers (ITA-OTB) in 2021 for GSA09. Firstly, data were filtered for the selected case study. Results for FDI effort data and AER economic data were shown.
+
 
 ```{r upload data, message=FALSE, warning=FALSE, cache = TRUE}
-effort = read.csv(paste0(wd,"FDI_spatial_data_EU28/EU28/spatial_effort_tableau_pts_EU28.csv")) 
+effort = read.csv(paste0(wd,"AER and FDI datasets (October 24)/FDI_spatial_data_EU28/EU28/spatial_effort_tableau_pts_EU28.csv")) 
 effort = effort %>%  
          filter(year %in% Year_CS & gear_type %in% Gear_CS & cscode != "") %>%  
          mutate(totfishdays = as.numeric(totfishdays))
@@ -143,7 +145,7 @@ effort = effort %>%
 Subsequently, spatial ICES cells were used to map the total effort and landing data.
 
 ```{r upload spatial data, message=FALSE, warning=FALSE}
-spatial_effort = read_sf(paste0(wd,"FDI_spatial_data_EU28/EU28/effort_csquares.shp"))
+spatial_effort = read_sf(paste0(wd,"AER and FDI datasets (October 24)/FDI_spatial_data_EU28/EU28/effort_csquares.shp"))
 spatial_effort = spatial_effort %>% 
                  filter(cscode != is.na(cscode) & cscode != "")
 
@@ -397,7 +399,7 @@ write.csv(
 
 ### Step 5 - Find port visited by Global Fishing Watch (GFW)
 
-Download port visited by GFW database Only for CS vessels.
+After obtaining vessels within a specified area for a particular type of gear in a given year, the ports visited by these vessels are also downloaded. This process is undertaken in accordance with a methodology that has been described and validated by GFW. This provides a comprehensive overview of the port's operational dynamics, including the place of landing and the number of vessels arriving at each port.
 
 **Please note that this phase can take a long time.**
 
@@ -503,7 +505,9 @@ GFW_port_CS %>%
 
 #### Open Fleet Register and Add Vessel length (LOA) by MMSI - Vessel name for GFW data
 
-Take in effort only MMSI of the fleet register: we take only vessels present also in the Fleet Register, and we add the vessel length.
+At this stage of the process, the port of landing has been established for each vessel. However, vessel length is still needed to complete the FDI data linkage.
+It should be noted that data on the length of each vessel can be extracted from the fleet register. To this end, it is recommended that the information on the vessel’s length be identified in the fleet register and joined with the MMSI reported in the GFW data.
+--> Unfortunately, we lost ~ 50 vessels because they do not have an MMSI associated with the fleet register
 
 ```{r clean fleet reg}
 fleetReg = read.csv(paste0(wd,"vesselRegistryListResults.csv"), sep = ";")
@@ -529,7 +533,6 @@ fleetReg_info$vlength = c("VL0006","VL0612","VL1218", "VL1824", "VL2440", "VL40X
 write.csv(fleetReg_info, paste0(fd,"FleetReg_info_CS.csv"), row.names = F)
 ```
 
-We lost \~ 50 vessels because they do not have MMSI associated to the fleet register
 
 ```{r fleet register - LOA, message=FALSE, warning=FALSE}
 
@@ -556,10 +559,9 @@ write.csv(GFW_port_CS_fReg, paste0(fd,"GFW_port_CS_fReg.csv"), row.names = F)
 
 #### Check for main ports
 
-We filtered for main ports resulted fro the: Main Ports (Vessels Traffic by Type 1997-2024)
+Subsequently, the landing ports are cleaned, keeping only the main ones. We filtered the main ports resulting from the EMODNET Main Ports database (Vessels Traffic by Type 1997-2024).
+Since the two datasets are not perfectly comparable, we first identify all the GFW ports that are also present in the EMODNET dataset by performing a joint search on the port name. Then, a buffer of 3 km is created around the EMODNET ports, and the GFW ports within that buffer are assigned the same name as the EMODNET ports.
 
-Since the two datasets are not perfectly comparable, we first identify all the GFW ports that are also present in the EMODNET dataset by performing a join on the port name.
-Then, a buffer of 3 km is created around the EMODNET ports, and the GFW ports within that buffer are assigned the same name as the EMODNET ports.
 
 ![](images/clipboard-3645287371.jpeg){width="88"}
 
@@ -676,8 +678,7 @@ grid.newpage()
 grid.draw(v)
 ```
 
-Finally, double-check the GFW ports without a unique identifier and assign the correct nearest port name to each.
-See the leaflet map as an example.
+Finally, the GFW ports were double-checked for those without a valid port name, and the correct nearest port name was assigned to each one. See the leaflet map as an example. GFW ports without ID are in red, while correct ports are in blue. The blue pin represents the correct port. As illustrated, a comprehensive overview of all port name reassignments is provided.
 
 *GFW ports without ID are in red, while correct ports are in blue.*
 
@@ -717,6 +718,34 @@ ymax = as.numeric(st_bbox(FDI_effort_CS_sf_by_quarter)[4])+0.1
 
 
 ```
+
+| Pre-processed Port Name | Resulting Port Name | Rationale            |
+|--------------------------|---------------------|----------------------|
+| CALA GALERA              | PORTO ERCOLE        | Name correction      |
+| GENOA                    | GENOVA              | Name correction      |
+| GIGLIO PORTO             | ISOLA DEL GIGLIO    | Name correction      |
+| PORTO FERRAIO            | PORTOFERRAIO        | Name correction      |
+| ITA-110                  | RIO MARINA          | EMODNET port buffer  |
+| ITA-167                  | CAVO                | EMODNET port buffer  |
+| ITA-338                  | ANZIO               | Spatial correction   |
+| ITA-206                  | CIVITAVECCHIA       | Spatial correction   |
+| SANTA MARINELLA          | CIVITAVECCHIA       | Spatial correction   |
+| ITA-368                  | CIVITAVECCHIA       | Spatial correction   |
+| ITA-297                  | PORTO ERCOLE        | Spatial correction   |
+| ROMA                     | FIUMICINO           | Name correction      |
+| ITA-115                  | PORTOFERRAIO        | Spatial correction   |
+| MARCIANA MARINA          | PORTOFERRAIO        | Spatial correction   |
+| MARINA DI SALIVOLI       | PIOMBINO            | Spatial correction   |
+| PORTOVENERE              | LA SPEZIA           | Spatial correction   |
+| LAVAGNA                  | CHIAVARI            | Spatial correction   |
+| SESTRI LEVANTE           | CHIAVARI            | Spatial correction   |
+| CAMOGLI                  | GENOVA              | Spatial correction   |
+| ITA-273                  | GENOVA              | Spatial correction   |
+| VARAZZE                  | SAVONA              | Spatial correction   |
+| SAN LORENZO AL MARE      | IMPERIA             | Spatial correction   |
+| SANTO STEFANO            | IMPERIA             | Spatial correction   |
+| SAN REMO                 | IMPERIA             | Name correction      |
+| SANREMO                  | IMPERIA             | Spatial correction   |
 
 ```{r modify name port, message=FALSE, warning=FALSE}
 
@@ -870,9 +899,9 @@ GFW_port_fREG_CS_sf = GFW_port_fREG_CS %>%
 
 #### Find the number of vessels by each port
 
-Join vessels by port to find how many vessels are in each port
+At this phase, the number of fishing vessels by each port is calculated for each type of fishing gear and length of vessel.
+--> Remove quarter: The data is aggregated by year, and the seasonal variation is removed because the AIS data in this case study does not have optimal resolution.
 
---\> Remove quarter: The data is aggregated by year and the seasonal variation is removed because the AIS data in this case study does not have optimal resolution.
 
 ```{r number of vessels by port, message=FALSE, warning=FALSE}
 GFW_port_fREG = read.csv(paste0(fd,"GFW_port_CS_fReg_coords.csv")) %>% 
@@ -895,19 +924,20 @@ write_sf(GFW_effort_CS_sf, paste0(fd,"GFW_effort_port_by_icell.shp"))
 
 ### Step 6 - Disaggregation process
 
-#### AER disaggregation by ICES cell
+#### EU DCF economic AER disaggregation by ICES cell
 
-Starting from the data collected by NISEA, it is possible to fit a series of economic models.
+Compute the disaggregation of the economic data for each ICES cell. Here, we present the disaggregation of the Gross Value of Landing (GVL): 
+The disaggregation of the GVL is carried out by distributing the aggregate value across ICES cells in proportion to the distribution of fishing effort. Specifically, the effort share is derived as the ratio of fishing days recorded within a given cell to the total fishing days corresponding to the relevant vessel length class. The resulting share is then applied to the overall GVL, yielding the value attributable to each cell. This approach ensures that the spatial allocation of economic value is systematically aligned with observed fishing activity, thereby providing a consistent and methodologically sound basis for economic analysis at a disaggregated spatial scale.
 
-Compute the disaggregated economic value for each ices cell:
-
-$$
-Effort~shared = \frac{Fishing~days}{Total~fish~days~by~Vessel~length}
-$$
 
 $$
-GVL~by~cell = GVL \times Effort~shared
+GVL_{(g,l,icell)} = GVL_{(g,l)} \times Effort\ shared_{(g,l,icell)}
 $$
+
+$$
+Effort\ shared_{(g,l,icell)} = \frac{Fishing\ days_{(g,l,icell)}}{\sum Fishing\ days_{(g,l,icell)}}
+$$
+*Where g is the gear type, l is the vessel length, and icell is the ices cell*
 
 ```{r AER dis, message=FALSE, warning=FALSE, fig.align='center', fig.width=7,fig.height=4}
 
@@ -943,7 +973,7 @@ write.csv(FDI_vl, paste0(fd,"FDI_AER_by_icell.csv"), row.names = F)
 
 ```
 
-Add GFW data by gear and vessel length
+Add GFW data by gear and vessel length, and check differences between GFW effort data (expressed in hours of fishing) and FDI data (expressed in days of fishing) (Figure 16) to ensure data reliability.
 
 ```{r add GFW, message=FALSE, warning=FALSE,}
 
@@ -981,13 +1011,13 @@ FDI_GFW_plot
 
 #### FDI effort - AER disaggregation by spatial ICES cells
 
-Since there is a linear relationship between GFW effort and FDI fishing days, we can simply divide the FDI data x cell x the number of vessels in a given cell
+Since there is a linear relationship between GFW effort and FDI fishing days, we can simply divide the FDI data by cell by the number of vessels in a given cell. The resulting map is indicative of spatial variations in the GVL within the designated case study area.
 
 $$
-FDI\text{-}AER~by~vessel = \frac{FDI\text{-}AER~data}{number~of~vessels~by~length~and~ices~cell}
+GVL~by~vessel = \frac{GVL~by~cell_{(g,l,icell)}}{n.~vessel_{(g,l,icell)}}
 $$
 
-
+*Where g is the gear type, l is the vessel length, and icell is the ices cell.*
 
 ```{r disaggregate data by ices cell, message=FALSE, warning=FALSE}
 gfw_df = GFW_effort_port_by_icell %>% 
@@ -1007,25 +1037,6 @@ final_df <- gfw_fdi_merged_df %>%
 
 #### Output
 
-Check the disaggregation process
-
-```{r check process, message=FALSE, warning=FALSE}
-print(final_df %>% 
-          group_by(id, vssl_ln) %>% 
-          summarise(GFW_H = sum(App_F_H),FDI_days = sum(Fishing.days_AER_by_vessel)) %>% 
-
-ggplot(aes(x = GFW_H, y = FDI_days))+
-  geom_point()+
-  geom_smooth(method = "lm")+
-  theme_bw()+
-  facet_wrap(~ vssl_ln, scale = "free")+
-  xlab("GFW Fishing hours \nby ices cell")+
-  ylab("Disaggregate FDI-AER fishing days\nby ices cell")+
-  ggtitle("Check the disaggregation process")
-)
-
-
-```
 
 Map the Gross Value of Landings (GVL) resulting from the disaggregation process
 
@@ -1064,7 +1075,15 @@ final_df_by_ices = FDI_id %>%
 final_df_by_ices
 ```
 
-Gross Value of landings by port
+The same disaggregation procedure can be applied to each port. Since we now know the number of vessels in each port, we can disaggregate by port, gear type and vessel length.
+
+$$
+GVL\ by\ port_{(g,l,p)} = GVL_{(g,l)} \times weight_{(g,l,p)}
+$$
+$$
+weight_{(g,l,p)} = \frac{n.vessel\ by\ port_{(g,l,p)}}{\sum n.vessel\ by\ port_{(g,l,p)}}
+$$
+*Where g is the gear type, l is the vessel length, and p is the port.*
 
 ```{r GVL by port, message=FALSE, warning=FALSE, fig.width= 12, fig.height= 6}
 
@@ -1122,7 +1141,7 @@ write_sf(final_df, paste0(fd, "output_df_",Year_CS,".shp"))
 
 ## 2 Protocol - FDI landings (species kg and price) by port
 
-The protocol disaggregate FDI landing data for a time series.
+The protocol is designed to disaggregate FDI landing data for a time-series.
 
 ### Step 1 - Open and subset FDI Landing data
 
@@ -1137,7 +1156,7 @@ Year_CS = c(2014:2022)
 
 ```{r open FDI, include=FALSE, cache=TRUE}
 
-spatial_landing = read_sf(paste0(wd,"FDI_spatial_data_EU28/EU28/landings_csquares.shp")) %>% 
+spatial_landing = read_sf(paste0(wd,"AER and FDI datasets (October 24)/FDI_spatial_data_EU28/EU28/landings_csquares.shp")) %>% 
                 filter(cscode != is.na(cscode) & cscode != "") %>% 
                  st_intersection(GSA)
   
@@ -1147,7 +1166,7 @@ landing = list()
 
 for (y in 1 : length(Year_CS)){
 
-  land_y = read.csv(paste0(wd,"FDI_spatial_data_EU28/EU28/spatial_landings_tableau_pts_",
+  land_y = read.csv(paste0(wd,"AER and FDI datasets (October 24)/FDI_spatial_data_EU28/EU28/spatial_landings_tableau_pts_",
                            Year_CS[y],"_EU28.csv")) %>%
            filter(year %in% Year_CS & gear_type %in% Gear_CS & cscode %in% spatial_landing$cscode) %>%
            mutate(totwghtlandg = as.numeric(totwghtlandg), totvallandg = as.numeric(totvallandg))
@@ -1211,7 +1230,7 @@ plot_list[[y]] <- l_plot
 
 ```
 
---\> Remove first 3 years (2014-2015-2016) because there are few data
+Firstly, we decided to remove the first 3 years (2014-2015-2016) because there is a lack of data.
 
 Save all the filtered data in a specific folder fd = "CaseStudy/Data/"
 
@@ -1233,7 +1252,7 @@ saveRDS(
 
 ### Step 2 - Filter and clean landing data
 
-Take only species that have values in all years of the time series
+Following this, only species with values in all years of the time series were selected. An outlier check was then performed. The figure below represent an example of a time-series showing annual price trends for 29 marine species in the top panel. While the bottom panel represent a scatter plot for each species illustrating the relationship between annual catch (yearly_kg) and price for the same species. Red points reveal potential correlations between supply and economic value, offering insights into market actions and resource management.
 
 ```{r Landing CS, message=FALSE, warning=FALSE}
 landing_CS = readRDS(paste0(fd_price,"Landing_CS.RData"))
@@ -1327,7 +1346,7 @@ print(empty_df)
 
 ```
 
-Some species have zero value for all time series for specific gear and length combinations, so we have decided to remove them.
+Some species showed zero values across the entire time series for specific gear and vessel length combinations, so these cases were excluded. 
 
 ```{r remove zero time series}
 
@@ -1344,12 +1363,7 @@ euro_species_clean <- euro_species_filtered %>%
 
 ```
 
-For other species, it is evident that not all years had values.
-However, it is notable that there is a positive correlation with kilograms.
-The issue under discussion is resolved by calculating the linear relationship between value and kilograms by species.
-Subsequently, the value of the relationship is associated with the missing points in the time series.
-
-In the case that the relationship between value and kg is non-linear, the missing value was replaced with linear regression without vessel length.
+For other species, data were missing in certain years. Nonetheless, a strong positive correlation was observed between value and kilograms. To handle the missing data, we estimated the linear relationship between value and kilograms for each species and used it to impute the missing points in the time series.
 
 ```{r find linear relat, message = T, warning=FALSE, fig.width=18,fig.height=10}
 
@@ -1419,7 +1433,7 @@ if (length(non_significant_models) > 0) {
 
 ```
 
-In the case that the relationship between value and kg for [gear-vessel length-species] is non-linear, the missing value was replaced with linear regression for [gear-species].
+If the relationship between value and kilograms proved to be non-linear for a given gear–vessel length–species combination, missing values were instead estimated using a simplified linear regression that did not account for vessel length. In these cases, the regression was applied at the gear–species level to impute the missing data. 
 
 ```{r linear reg gear species, fig.width=12, fig.height=10}
 
@@ -1517,9 +1531,13 @@ for (g in seq_along(Gear_CS)) {
 
 ```
 
-Now we are ready for disaggregate data by landing port.
-First we remove remaining zero value and we calculate price as: value/kg
+Now we are ready for disaggregate data by landing port (Figure 23). First, we remove the remaining zero values, and we calculate the price as: 
+$$
+Price_{(g,l,s)} = \frac{value_{(g,l,s)} \; (euro)}{abundance_{(g,l,s)} \; (Kg)}
+$$
+*Where g is the gear type, l is the vessel length, and s is the species.*
 
+Before disaggregation, we select only the first 20 species by landing abundance 
 ```{r final data for disaggregation}
 
 df_full %>% 
@@ -1613,10 +1631,19 @@ Save data filtered
 
 ### Step 3 - Calculate and add price by species
 
-Load dataset containing the number of vessels by port, type of fishing gear used, and vessel length.
-Load port coordinates.
+For each port, gear, and vessel length, the relative share number of vessel was then calculated by dividing the number of vessels in each category by the total number of vessels present in that port. This produced the weights used to distribute landing values and quantities across ports.
+$$
+weight_{(g,l,p)} = \frac{n.vessel\ by\ port_{(g,l,p)}}{\sum n.vessel\ by\ port_{(g,l,p)}}
+$$
+*Where g is the gear type, l is the vessel length, p is the port, and s is the species.*
 
-Here we first chech gear code used and change as FDI code.
+The previously calculated weights were then joined with the species price resulting dataset, allowing landings to be distributed across ports. Following this process, the weighted price by species were calculated.
+
+$$
+Price\ by\ port_{(g,l,p,s)} = Price_{(g,l,s)} \times weight_{(g,l,p)}
+$$
+*Where g is the gear type, l is the vessel length, p is the port, and s is the species.*
+
 
 ```{r disaggregate data by port of landing, message=FALSE, warning=FALSE, fig.width=10, fig.height=8}
 
@@ -1676,28 +1703,8 @@ ggplot( aes(y = reorder_within(species, mean_price, interaction(gear, vlength)),
 
 ```
 
-Data quality check - Comparison FDI price before and after disaggregation procedure
-
-```{r}
-
-FDI_compare = FDI_land_spe_nvessel %>% 
-  group_by(year, gear, vlength, species) %>%
-  summarise(mprice = mean(mprice),
-            mprice_by_port = mean(mprice_by_port))
-  ggplot()+
-  geom_point(aes(x = mprice, y = mprice_by_port))+
-    geom_smooth(aes(x = mprice, y = mprice_by_port, color = species,fill = species),method = "lm") +
-  facet_wrap(~ species, scales = "free")+
-  theme_minimal()
-
-
-```
-
 
 
 ## Conclusion
 
-Overall, the disaggregation protocol developed under WP2 provides a replicable and adaptable framework to enhance the spatial granularity and analytical potential of fisheries socio-economic data.
-While subject to certain limitations—chiefly related to data availability and resolution—the approach demonstrates the feasibility of integrating heterogeneous data sources (FDI, AER, GFW, and registries) to derive vessel-level and port-level indicators.
-This not only improves the precision of fisheries monitoring and assessment, but also strengthens the foundational data layer required for advanced socio-ecological modeling within the Digital Twin of the Ocean.
-Future work will focus on validating this methodology across multiple regions and fleet segments, with the goal of operationalizing it within broader simulation workflows and policy support tools.
+Overall, the disaggregation protocol developed under WP2 provides a replicable and adaptable framework to enhance the spatial granularity and analytical potential of fisheries socio-economic data. While subject to certain limitations—chiefly related to data availability and resolution, the approach demonstrates the feasibility of integrating heterogeneous data sources (FDI, AER, GFW, and fleet register) to derive vessel-level and port-level indicators. This not only improves the precision of fisheries monitoring and assessment but also strengthens the foundational data layer required for advanced socio-ecological modeling within the Digital Twin of the Ocean. Future work will focus on validating this methodology across multiple regions and fleet segments, with the goal of operating it within broader simulation workflows and policy support tools.
