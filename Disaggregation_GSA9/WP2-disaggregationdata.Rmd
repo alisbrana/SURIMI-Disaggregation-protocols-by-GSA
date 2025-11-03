@@ -125,6 +125,10 @@ Country_CS = "ITA"
 Country_code = "IT"
 GSAs_CS = "GSA09"
 GSAa_CS = "GSA9"
+GSA = read_sf(paste0(wd,"GSAs_simplified.shp")) %>%
+       filter(SECT_COD == GSAs_CS)
+CS = GSA
+
 
 ```
 
@@ -161,8 +165,6 @@ Then the GSA polygon was used to subset and plot the landing and effort on the m
 
 # Effort and landing by GSA
 
-GSA = read_sf(paste0(wd,"GSAs_simplified.shp")) %>%
-       filter(SECT_COD == GSAs_CS)
 
 effort_GSA = effort_sf %>% 
               filter(sub_region == GSAa_CS)
@@ -172,7 +174,6 @@ effort_GSA = st_intersection(effort_GSA, GSA)
 
 effort_sf = effort_GSA
 
-CS = GSA
 
 #Set parameter for the map
 
@@ -1056,9 +1057,12 @@ map_GVL = ggplot()+
 
 map_GVL
 
+
 final_df_by_ices = FDI_id %>%
   select(geometry) %>% 
-  st_join(final_df) %>% 
+  st_join(final_df)
+
+final_df_by_ices %>% 
    ggplot +  
   geom_sf(aes(fill = log(Gross.value.of.landings_AER_by_vessel)))+
   geom_sf(data = world)+
@@ -1072,7 +1076,7 @@ final_df_by_ices = FDI_id %>%
   theme_light()+
   theme(legend.position = "bottom")
 
-final_df_by_ices
+write_sf(final_df_by_ices, paste0(fd, "final_df_by_ices.shp"))
 ```
 
 The same disaggregation procedure can be applied to each port. Since we now know the number of vessels in each port, we can disaggregate by port, gear type and vessel length.
@@ -1238,6 +1242,7 @@ Save all the filtered data in a specific folder fd = "CaseStudy/Data/"
 
 landing_sf =  landing_sf[!(names(landing_sf) %in% c("2014", "2015", "2016"))]
 
+fd = "CaseStudy/Data/"
 fd_price = "CaseStudy/Data_price/"
 
 saveRDS(landing_sf, paste0(fd_price,"Landing_sf.RData"))
@@ -1627,6 +1632,7 @@ Save data filtered
 
  saveRDS(FDI_land_spe_filter, paste0(fd_price,"FDI_land_spe_filter.RData"))
 
+
 ```
 
 ### Step 3 - Calculate and add price by species
@@ -1680,28 +1686,105 @@ FDI_land_spe_nvessel <- FDI_land_spe_nvessel %>%
                             mkg_by_port = mkg * weight,
                             mprice_by_port = mprice * weight)
 
-df_port_species <- FDI_land_spe_nvessel %>%
-                    group_by(year, gear, vlength, port, species) %>%
-                    summarise(
-                      mval = sum(mval_by_port, na.rm = TRUE),
-                      mkg  = sum(mkg_by_port, na.rm = TRUE),
-                      mprice = sum(mprice_by_port)) 
-
-
-df_port_species %>% 
-  group_by(species, gear, vlength) %>% 
-  summarise(mean_price = mean(mprice)) %>% 
-  
-ggplot( aes(y = reorder_within(species, mean_price, interaction(gear, vlength)), x = mean_price, fill = species)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  facet_wrap(~ gear + vlength, scales = "free", ncol = 4) +
-  theme_minimal() +
-  scale_y_reordered() +
-  theme(legend.position = "none")+
-  labs(title = "Average price by species and port", x = "Mean price (€)", y = "Species")
 
 
 ```
+
+
+```{r Add effort and rescale spatial price}
+
+final_effort = read_sf(paste0(fd, "final_df_by_ices.shp")) %>% 
+                rename(gear = Gear,
+                       vlength = vssl_ln,
+                       effort_shared = effrt_s,
+                       fishing_day = F__AER_,
+                       energy_cost = E__AER_,
+                       GVL = G____AE) %>% 
+                  select(MMSI, id, gear,vlength, fishing_day,energy_cost, GVL, port, lon_prt, lat_prt, n_track) %>% 
+                  drop_na()
+
+
+final_FDI_nvessel_port = FDI_land_spe_nvessel %>% 
+                          select(-c(mval,mkg,mprice,n_vessel_port,weight)) 
+
+coords_port = final_effort[c("port", "lon_prt","lat_prt")] %>% st_drop_geometry() %>% unique()                           
+spe_mval_port = final_FDI_nvessel_port %>% 
+                group_by(species, vlength, gear, port) %>% 
+                summarise(mval_mean = mean(mval_by_port), 
+                          mprice_mean = mean(mprice_by_port), 
+                          mkg_mean = mean(mkg_by_port) )  %>% 
+                left_join(coords_port) %>% 
+                st_as_sf(coords = c("lon_prt","lat_prt"), crs = st_crs(final_effort))
+  
+final_effort_cell = final_effort %>% 
+  group_by(id, vlength) %>% 
+  summarise(fishing_day = mean(fishing_day, na.rm = T))   
+
+final_effort_cell %>% 
+  ggplot +  
+  geom_sf(aes(fill = fishing_day))+
+  facet_wrap(~ vlength)+
+  geom_sf(data = world)+
+  scale_fill_viridis_c("fishing day",option = "inferno",  na.value = "white")+ 
+  coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax))+
+  annotation_scale(location = "tl", width_hint = 0.5) +
+  annotation_north_arrow(location = "tr", which_north = "true", 
+                         pad_x = unit(0.1, "in"), pad_y = unit(0.1, "in"),
+                         style = north_arrow_fancy_orienteering) +
+  ggtitle(paste0("Disaggregate fishing day data result - ices cells"))+
+  theme_light()+
+  theme(legend.position = "bottom")
+
+spe = unique(spe_mval_port$species)
+
+for(i in 1:length(spe)){
+print(spe_mval_port %>% 
+  filter(species %in% spe[i]) %>% 
+  ggplot()+
+   geom_sf(data = world)+ 
+  geom_sf(aes(color = mval_mean))+
+  facet_wrap(~ vlength)+
+  ggnewscale::new_scale_color()+
+  geom_sf(data = final_effort_cell, aes(fill = fishing_day ))+
+  scale_fill_viridis_c(option = "D") + 
+  coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax))+
+  ggtitle(paste0("Disaggregate landing value_", spe[i]))+
+  theme_light()+
+  theme(legend.position = "bottom"))
+}
+
+vessel_by_cell = final_effort %>% select(MMSI, id,gear, vlength) %>% st_drop_geometry() %>% unique()
+effort_by_cell =  final_effort_cell %>% st_drop_geometry()
+spe_by_port = spe_mval_port %>% st_drop_geometry()
+vessel_by_port = final_effort %>% select(MMSI, vlength, port) %>% st_drop_geometry() %>% unique()
+coords_port =  spe_mval_port %>%
+                select(port) %>%
+                unique() %>%           
+                mutate(
+                  X = st_coordinates(.)[,1],
+                  Y = st_coordinates(.)[,2]
+                ) %>%
+                st_drop_geometry()
+
+coords_cell = final_effort %>%
+                select(id) %>%
+                unique() 
+
+write.csv(vessel_by_cell,"C:/Users/alice/OneDrive - CNR/Documenti - ABM-Fisheries-grp/General/Paper_blueconomy/Data/vessel_by_cell.csv",row.names = F)
+
+write.csv(effort_by_cell,"C:/Users/alice/OneDrive - CNR/Documenti - ABM-Fisheries-grp/General/Paper_blueconomy/Data/effort_by_cell.csv",row.names = F)
+
+write.csv(spe_by_port,"C:/Users/alice/OneDrive - CNR/Documenti - ABM-Fisheries-grp/General/Paper_blueconomy/Data/spe_by_port.csv",row.names = F)
+
+write.csv(vessel_by_port,"C:/Users/alice/OneDrive - CNR/Documenti - ABM-Fisheries-grp/General/Paper_blueconomy/Data/vessel_by_port.csv",row.names = F)
+
+write.csv(coords_port,"C:/Users/alice/OneDrive - CNR/Documenti - ABM-Fisheries-grp/General/Paper_blueconomy/Data/coords_port.csv",row.names = F)
+
+write.csv(coords_cell,"C:/Users/alice/OneDrive - CNR/Documenti - ABM-Fisheries-grp/General/Paper_blueconomy/Data/coords_cell.csv",row.names = F)
+
+```
+
+
 
 
 
