@@ -1691,7 +1691,7 @@ FDI_land_spe_nvessel <- FDI_land_spe_nvessel %>%
 ```
 
 
-```{r Add effort and rescale spatial price}
+```{r Add effort and rescale spatial price,fig.width=10, fig.height=8}
 
 final_effort = read_sf(paste0(fd, "final_df_by_ices.shp")) %>% 
                 rename(gear = Gear,
@@ -1737,21 +1737,46 @@ final_effort_cell %>%
 
 spe = unique(spe_mval_port$species)
 
+coords_port = spe_mval_port %>%
+  select(port, species, mprice_mean, vlength) %>%  # keep geometry
+  unique() %>%
+  rowwise() %>%
+  mutate(
+    X = st_coordinates(geometry)[1, 1],
+    Y = st_coordinates(geometry)[1, 2]
+  ) %>%
+  ungroup() %>%
+  st_drop_geometry()
+  
+
 for(i in 1:length(spe)){
-print(spe_mval_port %>% 
+print(coords_port %>% 
   filter(species %in% spe[i]) %>% 
   ggplot()+
    geom_sf(data = world)+ 
-  geom_sf(aes(color = mval_mean))+
-  facet_wrap(~ vlength)+
-  ggnewscale::new_scale_color()+
-  geom_sf(data = final_effort_cell, aes(fill = fishing_day ))+
-  scale_fill_viridis_c(option = "D") + 
+ geom_label_repel(
+      aes(x = X, y = Y, label = port, fill = mprice_mean),
+      size = 3,
+      min.segment.length = 0)+   
+     scale_fill_gradient(low = "yellow", high = "red", na.value = NA)+
+    facet_wrap(~ vlength)+
+  # geom_sf(data = final_effort_cell, aes(fill = fishing_day ))+
+  # scale_fill_viridis_c(option = "D") + 
   coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax))+
   ggtitle(paste0("Disaggregate landing value_", spe[i]))+
   theme_light()+
   theme(legend.position = "bottom"))
 }
+
+final_FDI_nvessel_port %>% 
+  group_by(species, gear, vlength) %>% 
+  summarise(mean_price = mean(mprice_by_port)) %>% 
+  
+ggplot( aes(y = species, x = mean_price, fill = vlength)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  scale_y_reordered() +
+  labs(title = "Average price by species", x = "Mean price (€)", y = "Species")
 
 vessel_by_cell = final_effort %>% select(MMSI, id,gear, vlength) %>% st_drop_geometry() %>% unique()
 effort_by_cell =  final_effort_cell %>% st_drop_geometry()
@@ -1780,7 +1805,7 @@ write.csv(vessel_by_port,"C:/Users/alice/OneDrive - CNR/Documenti - ABM-Fisherie
 
 write.csv(coords_port,"C:/Users/alice/OneDrive - CNR/Documenti - ABM-Fisheries-grp/General/Paper_blueconomy/Data/coords_port.csv",row.names = F)
 
-write.csv(coords_cell,"C:/Users/alice/OneDrive - CNR/Documenti - ABM-Fisheries-grp/General/Paper_blueconomy/Data/coords_cell.csv",row.names = F)
+write_sf(coords_cell,"C:/Users/alice/OneDrive - CNR/Documenti - ABM-Fisheries-grp/General/Paper_blueconomy/Data/coords_cell.shp",row.names = F)
 
 ```
 

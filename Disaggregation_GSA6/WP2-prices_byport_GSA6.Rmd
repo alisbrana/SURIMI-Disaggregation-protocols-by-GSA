@@ -403,9 +403,17 @@ for (g in seq_along(gear_filter)) {
 port_coord = read.csv("Data Input/ports.csv") %>% 
               st_as_sf(coords = c("lon", "lat"), crs = st_crs(GSA))
 
-df_port_species %>% 
+
+spe = unique(df_port_species$species)
+
+for(i in 1:length(spe)){
+  
+  print(
+    df_port_species %>% 
+  filter(gear %in% "OTB") %>% 
+  filter(species %in% spe[i]) %>% 
   group_by(port_code) %>% 
-  summarise(port_price = sum(mprice_by_port), port_kg = sum(mkg_by_port)) %>%
+  summarise(port_price = mean(mprice_by_port), port_kg = mean(mkg_by_port)) %>%
   left_join(port_coord) %>% 
   st_as_sf() %>% 
   mutate(lon = st_coordinates(.)[,1], 
@@ -421,22 +429,55 @@ df_port_species %>%
   scale_fill_gradient(low = "yellow", high = "red", na.value = NA)+
   coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax))+
   theme_minimal()+
-  ggtitle("Map of main port for the CS")
+  ggtitle(paste0("Map of main port for the CS ", spe[i])))
+  
+}
+
 
 
 df_port_species %>% 
+  filter(gear == "OTB", vlength != "VL0612") %>% 
   group_by(species, gear, vlength) %>% 
-  summarise(mean_price = mean(mprice)) %>% 
+  summarise(mean_price = mean(mprice_by_port)) %>% 
   
-ggplot( aes(y = reorder_within(species, mean_price, interaction(gear, vlength)), x = mean_price, fill = species)) +
+ggplot( aes(y = species, x = mean_price, fill = vlength)) +
   geom_bar(stat = "identity", position = "dodge") +
-  facet_wrap(~ gear + vlength, scales = "free", ncol = 4) +
+  # facet_wrap(~ gear + vlength, scales = "free", ncol = 4) +
   theme_minimal() +
   scale_y_reordered() +
-  theme(legend.position = "none")+
+  # theme(legend.position = "none")+
+  labs(title = "Average price by species", x = "Mean price (€)", y = "Species")
+
+
+df_port_species %>% 
+  filter(gear == "OTB", vlength != "VL0612") %>% 
+  group_by(species, port_code, vlength) %>% 
+  summarise(mean_price = mean(mprice_by_port)) %>% 
+  
+ggplot( aes(y = species, x = mean_price, fill = port_code)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ vlength, scales = "free", ncol = 4) +
+  theme_minimal() +
+  scale_y_reordered() +
+  # theme(legend.position = "none")+
   labs(title = "Average price by species and port", x = "Mean price (€)", y = "Species")
 
 
+
+
+df_heatmap <- df_port_species %>% 
+  filter(gear == "OTB", vlength != "VL0612") %>% 
+  group_by(species, port_code) %>% 
+  summarise(mean_price = log(mean(mprice_by_port, na.rm = TRUE))) %>% 
+  ungroup() %>% 
+  # Pivot to wide format — adjust depending on how you want to arrange
+  pivot_wider(names_from = port_code, values_from = mean_price) %>% 
+  # Convert to matrix and set row names
+  column_to_rownames("species") %>% 
+  as.matrix()
+
+# Now you can plot
+heatmap(df_heatmap, Colv = NA, Rowv = NA, scale = "column", col = cm.colors(256))
 
 ```
 
