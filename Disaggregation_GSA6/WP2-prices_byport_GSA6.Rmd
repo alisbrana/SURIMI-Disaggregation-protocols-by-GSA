@@ -32,12 +32,12 @@ To implement this methodology effectively, two key datasets are required:
 
 2.  Dataset containing the number of vessels operating during the same time period, divided by port, type of fishing gear used, and vessel length:
 
-    | year | port_code | gear | vlength | n   |
-    |:-----|:----------|:-----|:--------|:----|
-    | 2013 | ESSCR     | DTS  | VL1218  | 11  |
-    | 2014 | ESSCR     | DTS  | VL1218  | 11  |
-    | 2015 | ESSCR     | DTS  | VL1218  | 10  |
-    | 2016 | ESSCR     | DTS  | VL1218  | 10  |
+    | year | port_code | gear | n   |
+    |:-----|:----------|:-----|:----|
+    | 2013 | ESSCR     | DTS  | 11  |
+    | 2014 | ESSCR     | DTS  | 11  |
+    | 2015 | ESSCR     | DTS  | 10  |
+    | 2016 | ESSCR     | DTS  | 10  |
 
 3.  Ports coordinates:
 
@@ -213,18 +213,18 @@ euro_species = purrr::map(
 euro_species_df = do.call("rbind", euro_species)
 
 species_all_years <- euro_species_df %>%
-  group_by(gear,vlength,species) %>%  
+  group_by(gear,species) %>%  
   distinct(year, species) %>%
   summarise(n_years = n_distinct(year), .groups = "drop") %>%
   filter(n_years == length(unique(euro_species_df$year)))
 
 euro_species_filtered <- euro_species_df %>%
-                         inner_join(species_all_years, by = c("species", "vlength", "gear"))
+                         inner_join(species_all_years, by = c("species", "gear"))
 
 # remove quarter
 
 euro_species_filtered <- euro_species_filtered %>%  
-                           group_by(year,vlength, gear, id,  species) %>% 
+                           group_by(year, gear, species) %>% 
                            summarise(yearly_kg = mean(tot_fish_weight)*1000, yearly_value = mean(tot_fish_value))
                            
 euro_species_filtered %>%
@@ -268,21 +268,19 @@ for (g in seq_along(gear_filter)) {
 
   print(FDI_land_spe_filter %>% 
     filter(gear == gear_filter[g]) %>% 
-  group_by(year, vlength, species) %>% 
+  group_by(year, species) %>% 
   summarise(m_price = mean(price)) %>% 
   left_join(FAO_sp) %>%
   mutate(sp_id = paste0(Scientific_Name," (",species,")")) %>% 
   
-        ggplot(aes(x = year, y = m_price, color = vlength,
-                   group = interaction(species, vlength)
-                   
-                   )) +
+        ggplot(aes(x = year, y = m_price, color = species,
+                   group = species)) +
         geom_line(size = 1.1) +
         geom_point() +
         facet_wrap(~ sp_id, scales = "free", ncol = 5) +
         theme_minimal() +
         ggtitle(paste0("Species price time series for ", gear_filter[g])) +
-        ylab("Species price")+
+        ylab("Species price (€)")+
         theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
 )
 }
@@ -310,174 +308,9 @@ Save data filtered
 
  saveRDS(FDI_land_spe_filter, paste0(fd,"FDI_land_spe_filter.RData"))
 
-```
-
-### Step 3 - Calculate and add price by species
-
-After the filtering and selection steps, a dataset containing the number of vessels per port, fishing gear type, and vessel length was loaded and used to proportionally allocate landed kilograms and values by species at the port level. 
-For each port, gear, and vessel length, the relative share number of vessel was calculated by dividing the number of vessels in each category by the total number of vessels present in that port. This produced the weights used to distribute landing values and quantities across ports.
-$$
-\text{weight}_{(g,l,p)} = \frac{\text{n.vessel by port}_{(g,l,p)}}{\sum \text{n.vessel by port}_{(g,l,p)}}
-$$
-*Where g is the gear type, l is the vessel length, p is the port, and s is the species.*
-
-The previously calculated weights were then joined with the species price resulting dataset, allowing landings to be distributed across ports. Following this process, the weighted price by species were calculated.
-$$
-\text{Price by port}_{(g,l,p,s)} = \text{Price}_{(g,l,s)} \cdot \text{weight}_{(g,l,p)}
-$$
-*Where g is the gear type, l is the vessel length, p is the port, and s is the species.*
-
-As shown, the results are compared before and after this disaggregation, based on the number of vessels in each port.
-The data were then aggregated and reported by port as the total value of the landed catch. The same information was also presented as species-specific prices by gear and vessel length.
-
-
-```{r disaggregate data by port of landing - compare pre - post disaggregation, message=FALSE, warning=FALSE, fig.width=14, fig.height=14}
-
-nvessel_port = read.csv("Data Input/num_vessels_per_year_port_gear_length.csv") %>% 
-                rename( gear = gear_code,
-                        vlength = vessel_length) %>% 
-                mutate(year = as.character(year))
-
-nvessel_port$gear[which(nvessel_port$gear == "DTS")] <- "OTB"
-  
-total_n <- nvessel_port %>%
-  group_by(year, gear, vlength) %>%
-  summarise(total_n = sum(n))
-
-nvessel_weighted <- nvessel_port %>%
-  left_join(total_n, by = c("year", "gear", "vlength")) %>%
-  mutate(weight = n / total_n)
-
-FDI_land_spe_filter = readRDS(paste0(fd,"FDI_land_spe_filter.RData")) %>% 
-                      group_by(year, gear, vlength, species) %>% 
-                      summarise(mval = mean(yearly_value), mkg = mean(yearly_kg), mprice = mean(price))  
-                      
-FDI_land_spe_nvessel <- FDI_land_spe_filter %>%
-                         inner_join(nvessel_weighted, by = c("year", "gear", "vlength"))
-
-FDI_land_spe_nvessel <- FDI_land_spe_nvessel %>%
-                          mutate(
-                            mval_by_port = mval * weight,
-                            mkg_by_port = mkg * weight,
-                            mprice_by_port = mprice * weight)
-
-df_port_species <- FDI_land_spe_nvessel %>%
-                    group_by(year, gear, vlength, port_code, species) %>%
-                    select(mval_by_port, mkg_by_port, mprice_by_port, mval, mkg, mprice)
-
-
-for (g in seq_along(gear_filter)) {
-
-  print(df_port_species %>% 
-          group_by(year, gear, vlength, species) %>% 
-          summarise(mprice_by_port_tot = sum(mprice_by_port), mprice = sum(mprice)) %>% 
-    filter(gear == gear_filter[g]) %>% 
-
-       ggplot(aes(x = mprice, y = mprice_by_port_tot, fill = vlength, color = vlength))+
-        geom_point()+
-        geom_smooth(method = "lm")+
-        facet_wrap(~ species, scale = "free")+
-        theme_minimal() +
-        ggtitle(paste0("Species price for ", gear_filter[g]))+
-        stat_fit_glance(method = "lm",
-                    label.x = "right",
-                    label.y = "bottom",
-                    method.args = list(formula = y ~ x),
-                    mapping = aes(label = sprintf('italic(r)^2~"="~%.3f~~italic(P)~"="~%.2g',
-                                  after_stat(r.squared), after_stat(p.value))),
-                    parse = TRUE,
-                    show.legend = FALSE) +
-      ylab("Resulting species price by disaggregation procedure")+
-      xlab("Pre-processed species price")
-  )
-  ggsave(filename = paste0("Result/species_prices_",gear_filter[g],".jpeg"), width = 30, height = 25, units = "cm", dpi = 300)     
-  }
+write.csv(FDI_land_spe_filter, "Result/Species_Prices.csv", row.names = F)
 
 ```
 
 
-
-```{r disaggregate data by port of landing, message=FALSE, warning=FALSE, fig.width=10, fig.height=8}
-
-
-port_coord = read.csv("Data Input/ports.csv") %>% 
-              st_as_sf(coords = c("lon", "lat"), crs = st_crs(GSA))
-
-
-spe = unique(df_port_species$species)
-
-for(i in 1:length(spe)){
-  
-  print(
-    df_port_species %>% 
-  filter(gear %in% "OTB") %>% 
-  filter(species %in% spe[i]) %>% 
-  group_by(port_code) %>% 
-  summarise(port_price = mean(mprice_by_port), port_kg = mean(mkg_by_port)) %>%
-  left_join(port_coord) %>% 
-  st_as_sf() %>% 
-  mutate(lon = st_coordinates(.)[,1], 
-               lat = st_coordinates(.)[,2]) %>% 
-
- ggplot() +
-  geom_sf(data = world)+
-  geom_label_repel(
-      aes(x = lon, y = lat, label = port_code, fill = port_price),
-      size = 3,
-      min.segment.length = 0
-    )   +
-  scale_fill_gradient(low = "yellow", high = "red", na.value = NA)+
-  coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax))+
-  theme_minimal()+
-  ggtitle(paste0("Map of main port for the CS ", spe[i])))
-  
-}
-
-
-
-df_port_species %>% 
-  filter(gear == "OTB", vlength != "VL0612") %>% 
-  group_by(species, gear, vlength) %>% 
-  summarise(mean_price = mean(mprice_by_port)) %>% 
-  
-ggplot( aes(y = species, x = mean_price, fill = vlength)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  # facet_wrap(~ gear + vlength, scales = "free", ncol = 4) +
-  theme_minimal() +
-  scale_y_reordered() +
-  # theme(legend.position = "none")+
-  labs(title = "Average price by species", x = "Mean price (€)", y = "Species")
-
-
-df_port_species %>% 
-  filter(gear == "OTB", vlength != "VL0612") %>% 
-  group_by(species, port_code, vlength) %>% 
-  summarise(mean_price = mean(mprice_by_port)) %>% 
-  
-ggplot( aes(y = species, x = mean_price, fill = port_code)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  facet_wrap(~ vlength, scales = "free", ncol = 4) +
-  theme_minimal() +
-  scale_y_reordered() +
-  # theme(legend.position = "none")+
-  labs(title = "Average price by species and port", x = "Mean price (€)", y = "Species")
-
-
-
-
-df_heatmap <- df_port_species %>% 
-  filter(gear == "OTB", vlength != "VL0612") %>% 
-  group_by(species, port_code) %>% 
-  summarise(mean_price = log(mean(mprice_by_port, na.rm = TRUE))) %>% 
-  ungroup() %>% 
-  # Pivot to wide format — adjust depending on how you want to arrange
-  pivot_wider(names_from = port_code, values_from = mean_price) %>% 
-  # Convert to matrix and set row names
-  column_to_rownames("species") %>% 
-  as.matrix()
-
-# Now you can plot
-heatmap(df_heatmap, Colv = NA, Rowv = NA, scale = "column", col = cm.colors(256))
-
-```
 
