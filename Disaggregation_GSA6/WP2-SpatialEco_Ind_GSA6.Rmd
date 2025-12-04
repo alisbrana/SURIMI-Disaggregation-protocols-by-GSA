@@ -29,7 +29,6 @@ library(tidyverse)
 Sets the general working directory where all datasets are stored (wd).
 
 ```{r load data, message=FALSE, warning=FALSE, include=FALSE}
-wd_cs = "C:/Users/alice/OneDrive/Documenti/GitHub/SURIMI---Disaggregation-protocols-by-GSA/Disaggregation_GSA6/"
 wd = "C:/Users/alice/OneDrive - CNR/Documenti - SURIMI-Internal-grp/General/Deliverable 2.1-2.2/" 
 
 ```

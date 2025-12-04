@@ -47,7 +47,7 @@ wd = "SET YOUR DATA FOLDER DIRECTORY"
 
 ```{r wd, include=FALSE}
 
-wd = "C:/Users/alice/OneDrive - CNR/Documenti - SURIMI-Internal-grp/WP2/" 
+wd = "C:/Users/alice/OneDrive - CNR/Documenti - SURIMI-Internal-grp/General/Deliverable 2.1-2.2/" 
 
 ```
 
@@ -89,11 +89,11 @@ library(webshot2)
 The FDI data were opened and filtered by gear type, year, and country. The GSA polygon was then used to extract spatial landings for Bottom Otter Trawlers (OTB) and Purse Seiners (PS). Figures present selected results showing the total landing values by gear type.
 
 ```{r open FDI, eval = TRUE, include=FALSE, cache=TRUE}
-GSA = read_sf(paste0(wd,"GSAs_simplified.shp")) %>%
+GSA = read_sf("Data Input/GSAs_simplified.shp") %>%
        filter(SECT_COD == GSAs_CS)
 
 
-spatial_landing = read_sf(paste0(wd,"AER and FDI datasets (October 24)/FDI_spatial_data_EU28/EU28/landings_csquares.shp")) %>% 
+spatial_landing = read_sf(paste0(wd,"Surimi data lake - CNR/Spatial/FDI_spatial_data_EU28/EU28/landings_csquares.shp")) %>% 
                   st_intersection(GSA)
   
 
@@ -102,7 +102,7 @@ landing = list()
 
 for (y in 1 : length(Year)){
 
-  land_y = read.csv(paste0(wd,"AER and FDI datasets (October 24)/FDI_spatial_data_EU28/EU28/spatial_landings_tableau_pts_",
+  land_y = read.csv(paste0(wd,"Surimi data lake - CNR/Spatial/FDI_spatial_data_EU28/EU28/spatial_landings_tableau_pts_",
                            Year[y],"_EU28.csv")) %>%
            filter(year %in% Year & gear_type %in% Gear & cscode %in% spatial_landing$cscode) %>%
            mutate(totwghtlandg = as.numeric(totwghtlandg), totvallandg = as.numeric(totvallandg))
@@ -244,7 +244,7 @@ FDI_land_spe_filter <- euro_species_filtered %>%
                     select(-m_kg) %>% 
                     mutate(price = yearly_value/yearly_kg)
 
-FAO_sp = read.csv(paste0(wd,"ASFIS_sp_2025.csv")) %>% select("Alpha3_Code","Scientific_Name") %>% rename("species" = "Alpha3_Code")
+FAO_sp = read.csv("Data Input/ASFIS_sp_2025.csv") %>% select("Alpha3_Code","Scientific_Name") %>% rename("species" = "Alpha3_Code")
 
 FDI_land_spe_filter$year = as.character(FDI_land_spe_filter$year)
 
