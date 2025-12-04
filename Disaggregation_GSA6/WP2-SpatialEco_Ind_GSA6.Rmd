@@ -1,7 +1,7 @@
 ---
-title: "Energy cost disaggregation"
+title: "Economic indicators disaggregation"
 author: "Sbrana, Sabatella"
-date: "2025-11-24"
+date: "2025-12-04"
 output:
   html_document:
     theme: simplex
@@ -29,7 +29,9 @@ library(tidyverse)
 Sets the general working directory where all datasets are stored (wd).
 
 ```{r load data, message=FALSE, warning=FALSE, include=FALSE}
-wd = "C:/Users/alice/OneDrive - CNR/Documenti - SURIMI-Internal-grp/General/Deliverable 2.1-2.2/"
+wd_cs = "C:/Users/alice/OneDrive/Documenti/GitHub/SURIMI---Disaggregation-protocols-by-GSA/Disaggregation_GSA6/"
+wd = "C:/Users/alice/OneDrive - CNR/Documenti - SURIMI-Internal-grp/General/Deliverable 2.1-2.2/" 
+
 ```
 
 Defines the GSA codes, country, and supra-region used as filters in the analysis.
@@ -39,12 +41,13 @@ GSAa_CS = c("GSA6")
 GSAs_CS = c("GSA06")
 Country_CS = "SPAIN"
 supra_reg_CS = "MBS"
+gear_CS = c("OTB")
 ```
 
 Loads the GSA shapefile and keeps only the GSA of interest.
 
 ```{r GSA, message=FALSE, warning=FALSE}
-GSA = read_sf("GSAs_simplified.shp") %>%
+GSA = read_sf("Data Input/GSAs_simplified.shp") %>%
   filter(SECT_COD == GSAs_CS)
 ```
 
@@ -58,10 +61,15 @@ Load datasets:
 
 ```{r data, message=FALSE, warning=FALSE}
 AER <- read.csv(paste0(wd,"Surimi data lake - CNR/Economic and social/AER_economic_fleet segment.csv"))
+
 csquare = read_sf(paste0(wd, "Surimi data lake - CNR/Spatial/FDI_spatial_data_EU27/EU27/effort_csquares.shp")) %>% 
   st_intersection(GSA)
-FDI_effort <- read.csv(paste0(wd, "Surimi data lake - CNR/Spatial/FDI_spatial_data_EU27/EU27/spatial_effort_tableau_pts_EU27.csv")) %>% 
-  filter(cscode %in% unique(csquare$cscode))
+
+FDI_effort_sf <- read.csv(paste0(wd, "Surimi data lake - CNR/Spatial/FDI_spatial_data_EU27/EU27/spatial_effort_tableau_pts_EU27.csv")) %>% 
+              filter(gear_type %in% gear_CS) %>% 
+                inner_join(csquare) %>% 
+                select(year,vessel_length,gear_type, supra_region, cscode,totfishdays, geometry) %>% 
+                st_as_sf()
 ```
 
 Loads a layer of European country borders and reprojects it to match the CRS of the GSA, which is required for correct spatial plotting.
@@ -87,13 +95,8 @@ AER$country_name <- toupper(AER$country_name)
 
 ## Harmonize supra-region labels (NAO, MBS, OFR)
 AER$supra_region <- str_trim(AER$supra_reg)
-FDI_effort$supra_region <- str_trim(FDI_effort$supra_region)
+FDI_effort_sf$supra_region <- str_trim(FDI_effort_sf$supra_region)
 
-## Harmonize fishing technique (DTS, OTB, etc.)
-AER$fishing_tech <- str_trim(AER$fishing_tech)
-FDI_effort$fishing_tech <- str_trim(FDI_effort$fishing_tech)
-
-FDI_effort$metier <- str_trim(FDI_effort$metier)
 ```
 
 Filters the AER dataset by year and fishing technique.
@@ -101,7 +104,6 @@ Recodes DTS → OTB to harmonize economic and effort datasets.
 
 ```{r Compute GVA and Gross Profit from AER, message=FALSE, warning=FALSE}
 AER <- AER %>%
-  filter(year %in% c(2020, 2021)) %>%
   filter(fishing_tech %in% c("DTS")) %>% 
   mutate(gear_type = recode(fishing_tech, 
                             "DTS" = "OTB")) %>% 
@@ -153,10 +155,6 @@ AER_wide = AER_wide %>% filter(country_name %in% Country_CS, supra_region %in% s
 AER_wide = AER_wide %>% left_join(Fuel_cost)
 
 
-join_vars <- c("year","vessel_length", "gear_type", "supra_region")
-
-aer_fdi <- FDI_effort %>%
-  inner_join(AER_wide, by = join_vars)
 ```
 
 ### Redistribute economic variables 
@@ -165,30 +163,32 @@ Computes the total fishing days for each economic grouping.
 Distributes each economic variable across c-squares proportionally to fishing effort (fishing days) in each cell.
 
 ```{r disaggregate by tot fish days, message=FALSE, warning=FALSE}
-totals_days <- aer_fdi %>%
-  group_by(across(all_of(join_vars))) %>%
-  summarise(sum_days = sum(totfishdays, na.rm = TRUE))
 
-# Add total effort to data
-aer_fdi <- aer_fdi %>%
-  left_join(totals_days, by = join_vars)
+FDI_effort_CS <- FDI_effort_sf %>%
+                st_drop_geometry() %>% 
+                group_by(cscode,year,vessel_length, gear_type,supra_region) %>%
+                summarise(totfishdays = round(sum(totfishdays, na.rm = TRUE),1)) %>% 
+                group_by(year,vessel_length, gear_type,supra_region) %>%
+                mutate(sum_days = sum(totfishdays)) %>% 
+                mutate(effort_share = ifelse(sum_days > 0,
+                              totfishdays / sum_days,
+                              0))
 
-# Disaggregate GVA and Gross Profit proportionally to effort
+aer_fdi <- FDI_effort_CS %>%
+            inner_join(AER_wide, by = c("year" ,"vessel_length", "gear_type", "supra_region") )
+
 aer_fdi_disagg <- aer_fdi %>%
-  mutate(
-    effort_share = ifelse(sum_days > 0,
-                          totfishdays / sum_days,
-                          0),
-    GVL_disagg  = Gross_value_of_landings * effort_share,
+   mutate( GVL_disagg  = Gross_value_of_landings * effort_share,
     Other_income_disagg = Other_income * effort_share,
     Repair_maintenance_costs_disagg = Repair_maintenance_costs*effort_share,
     Other_variable_costs_disagg = Other_variable_costs * effort_share,
     Other_non_variable_costs_disagg = Other_non_variable_costs * effort_share,
     Personnel_costs_disagg =  Personnel_costs * effort_share,
     Value_of_unpaid_labour_disagg = Value_of_unpaid_labour * effort_share) %>% 
-  select(all_of(join_vars), GVL_disagg, Other_income_disagg, Repair_maintenance_costs_disagg,
+   
+   select(cscode, year ,vessel_length, gear_type, supra_region, GVL_disagg, Other_income_disagg, Repair_maintenance_costs_disagg,
          Other_variable_costs_disagg, Other_non_variable_costs_disagg, Personnel_costs_disagg, Value_of_unpaid_labour_disagg,
-         cscode, gear_type, totfishdays, Fuel_cost)
+         totfishdays, Fuel_cost)
 
 ```
 
@@ -265,17 +265,24 @@ Three maps are generated for:
 
 Each map uses a similar structure:
 
-```{r plot, message=FALSE, warning=FALSE, fig.width= 6, fig.height= 15}
+```{r plot, message=FALSE, warning=FALSE, fig.width= 12, fig.height= 10}
+xmap = x %>% 
+      group_by(cscode) %>% 
+      drop_na() %>% 
+      summarise(EC = mean(EC),
+                GVA = mean(GVA),
+                Gross_profit  = mean(Gross_profit),
+                totfishdays = mean(totfishdays))
 
-
-g1 = x %>% 
+g1 = xmap %>% 
   inner_join(csquare) %>% 
   st_as_sf %>% 
+  
   ggplot() +
   geom_sf(data = world, fill = "grey") + 
   geom_sf(aes(fill = EC), colour = NA, inherit.aes = TRUE) + 
   scale_fill_viridis_c("Energy Cost (Euros)", option = "magma", 
-                       trans = "log10", na.value = NA) + 
+                       na.value = NA) + 
   theme_cowplot() +  
   theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
         legend.position = "bottom",
@@ -289,14 +296,14 @@ g1 = x %>%
   scale_y_continuous(limits = c(ymin,ymax))+
   ggtitle("Energy Cost")
 
-g2 = x %>% 
+g2 = xmap %>% 
   inner_join(csquare) %>% 
   st_as_sf %>% 
   ggplot() +
   geom_sf(data = world, fill = "grey") + 
   geom_sf(aes(fill = GVA), colour = NA, inherit.aes = TRUE) + 
   scale_fill_viridis_c("GVA", option = "cividis", 
-                       trans = "log10", na.value = NA) + 
+                      na.value = NA) + 
   theme_cowplot() +  
   theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
         legend.position = "bottom",
@@ -311,14 +318,14 @@ g2 = x %>%
   ggtitle("Gross Value Added")
 
 
-g3 = x %>% 
+g3 = xmap %>% 
   inner_join(csquare) %>% 
   st_as_sf %>% 
   ggplot() +
   geom_sf(data = world, fill = "grey") + 
   geom_sf(aes(fill = Gross_profit), colour = NA, inherit.aes = TRUE) + 
   scale_fill_viridis_c("Gross_profit", option = "rocket", 
-                       trans = "log10", na.value = NA) + 
+                        na.value = NA) + 
   theme_cowplot() +  
   theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
         legend.position = "bottom",
@@ -332,7 +339,29 @@ g3 = x %>%
   scale_y_continuous(limits = c(ymin,ymax))+
   ggtitle("Gross Profits")
 
-gridExtra::grid.arrange(g1,g2,g3, nrow = 3)
+g4 = xmap %>% 
+  inner_join(csquare) %>% 
+  st_as_sf %>% 
+  ggplot() +
+  geom_sf(data = world, fill = "grey") + 
+  geom_sf(aes(fill = totfishdays), colour = NA, inherit.aes = TRUE) + 
+  scale_fill_viridis_c("Fishing days", option = "plasma", 
+                        na.value = NA) + 
+  theme_cowplot() +  
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        legend.position = "bottom",
+        legend.key.width = unit(0.8, "cm"),     
+        legend.key.height = unit(0.4, "cm"),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 5),
+        legend.box.margin = margin(t = 5, b = 5),
+        legend.box.spacing = unit(0.1, "cm"))+
+  scale_x_continuous(limits = c(xmin,xmax)) +
+  scale_y_continuous(limits = c(ymin,ymax))+
+  ggtitle("Fishing days")
+
+
+gridExtra::grid.arrange(g1,g2,g3,g4, nrow = 2)
 
 ```
 
@@ -345,7 +374,9 @@ Exports a final dataset including:
 -   recalculated GVA and Gross Profit
 
 ```{r}
-write.csv(x,
-          "Spatial_Enegy_Cost.csv",
+write.csv(x, "Spatial_Economic_value.csv",
           row.names = FALSE)
 ```
+
+
+

@@ -1,7 +1,7 @@
 ---
-title: "Price disaggregation protocol: from spatial ICES cells to individual ports."
+title: "Price disaggregation protocol."
 author: "Sbrana, Sabatella"
-date: "2025-07-30"
+date: "2025-12-04"
 output: 
   html_document:
     theme: united
@@ -30,24 +30,9 @@ To implement this methodology effectively, two key datasets are required:
 
 1.  The [FDI landing dataset](https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FAD/fdi/FDI_spatial_data_EU28.zip), which provides detailed records of landings over time by year, country, GSA, gear, vessel length and ices-cell.
 
-2.  Dataset containing the number of vessels operating during the same time period, divided by port, type of fishing gear used, and vessel length:
+2.  The [FAO Geographical Sub-Areas](https://gfcmsitestorage.blob.core.windows.net/website/5.Data/ArcGIS/GSAs_simplified_updated_division%20(2).zip): Area of application, comprised of the Mediterranean and the Black Sea, as Major Fishing Area 37.
 
-    | year | port_code | gear | n   |
-    |:-----|:----------|:-----|:----|
-    | 2013 | ESSCR     | DTS  | 11  |
-    | 2014 | ESSCR     | DTS  | 11  |
-    | 2015 | ESSCR     | DTS  | 10  |
-    | 2016 | ESSCR     | DTS  | 10  |
-
-3.  Ports coordinates:
-
-    | port_code | lon       | lat      |
-    |:----------|:----------|:---------|
-    | ESSCR     | 40.582276 | 0.598944 |
-
-4.  The [FAO Geographical Sub-Areas](https://gfcmsitestorage.blob.core.windows.net/website/5.Data/ArcGIS/GSAs_simplified_updated_division%20(2).zip): Area of application, comprised of the Mediterranean and the Black Sea, as Major Fishing Area 37.
-
-5.  The [FAO ASFIS List of Species for Fisheries](https://www.fao.org/fishery/static/ASFIS/ASFIS_sp.zip) which represents the standard taxonomic reference system for the FAO Statistics Team.
+3.  The [FAO ASFIS List of Species for Fisheries](https://www.fao.org/fishery/static/ASFIS/ASFIS_sp.zip) which represents the standard taxonomic reference system for the FAO Statistics Team.
 
 This information is crucial for providing context to the landing data and for connecting fishing effort with species availability and price patterns at the port level.
 
@@ -248,15 +233,16 @@ ggsave(filename = "Result/land_spe.jpeg", height = 12)
   slice_max(m_kg, n = 15) %>%
   ungroup()  
 
- FDI_land_spe_filter <- euro_species_filtered %>%
+```
+
+### Step 3 - Add species price
+
+```{r results, message=FALSE, warning=FALSE, fig.width=15,fig.height=8}
+ 
+FDI_land_spe_filter <- euro_species_filtered %>%
                     inner_join(species_sel, by = c("species", "gear")) %>% 
                     select(-m_kg) %>% 
                     mutate(price = yearly_value/yearly_kg)
-```
-
-Some results:
-
-```{r results, message=FALSE, warning=FALSE, fig.width=15,fig.height=8}
 
 FAO_sp = read.csv(paste0(wd,"ASFIS_sp_2025.csv")) %>% select("Alpha3_Code","Scientific_Name") %>% rename("species" = "Alpha3_Code")
 
@@ -306,7 +292,7 @@ Save data filtered
 
 ```{r select species, message=FALSE, warning=FALSE, fig.width=8, fig.height=10}
 
- saveRDS(FDI_land_spe_filter, paste0(fd,"FDI_land_spe_filter.RData"))
+saveRDS(FDI_land_spe_filter, paste0(fd,"FDI_land_spe_filter.RData"))
 
 write.csv(FDI_land_spe_filter, "Result/Species_Prices.csv", row.names = F)
 
