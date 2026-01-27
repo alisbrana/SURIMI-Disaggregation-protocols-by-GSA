@@ -1,0 +1,11 @@
+vessel_by_cell: The ID cell (ID) that each vessel (MMSI) visited in the year 2021.
+
+effort_by_cell: mean effort value (fishing day) by each cell (ID) and vessel length (vlength) in the year 2021.
+
+spe_by_port: landing value (mval_mean), price (mprice_mean) and kg (mkg_mean) of fish species (species) by vessel length, gear, and port in the year 2021.
+
+vessel_by_port: The port visited by each vessel (MMSI) in the year 2021.
+
+coords_port: port coordinates (csv)
+
+coords_cell: ID cell coordinates (shapefile)
