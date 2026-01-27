@@ -21,6 +21,7 @@ library(dplyr)
 library(rnaturalearth)
 library(sf)
 library(tidyverse)
+library(broom)
 
 ```
 
@@ -61,10 +62,10 @@ Load datasets:
 ```{r data, message=FALSE, warning=FALSE}
 AER <- read.csv(paste0(wd,"Surimi data lake - CNR/Economic and social/AER_economic_fleet segment.csv"))
 
-csquare = read_sf(paste0(wd, "Surimi data lake - CNR/Spatial/FDI_spatial_data_EU27/EU27/effort_csquares.shp")) %>% 
+csquare = read_sf(paste0(wd, "Surimi data lake - CNR/Spatial/EU27/EU27_total_effort_csquares.shp")) %>% 
   st_intersection(GSA)
 
-FDI_effort_sf <- read.csv(paste0(wd, "Surimi data lake - CNR/Spatial/FDI_spatial_data_EU27/EU27/spatial_effort_tableau_pts_EU27.csv")) %>% 
+FDI_effort_sf <- read.csv(paste0(wd, "Surimi data lake - CNR/Spatial/EU27/spatial_effort_tableau_pts_EU27_2012-2024.csv")) %>% 
               filter(gear_type %in% gear_CS) %>% 
                 inner_join(csquare) %>% 
                 select(year,vessel_length,gear_type, supra_region, cscode,totfishdays, geometry) %>% 
@@ -106,7 +107,7 @@ AER <- AER %>%
   filter(fishing_tech %in% c("DTS")) %>% 
   mutate(gear_type = recode(fishing_tech, 
                             "DTS" = "OTB")) %>% 
-  filter(variable_name %in% c("Energy costs", "Energy consumption", "kW fishing days", "Gross value of landings","Other income",
+  filter(variable_name %in% c("Fishing days","Energy costs", "Energy consumption", "Gross value of landings","Other income",
                               "Repair & maintenance costs", "Other variable costs","Personnel costs",
                               "Value of unpaid labour","Other non-variable costs")) %>%
   mutate(variable_name =  gsub(" ", "_", variable_name)) %>% 
@@ -116,13 +117,303 @@ AER <- AER %>%
 ```
 
 Converts the AER table from long to wide format, aggregating economic variables.
-Computes the unit fuel cost (€/L) per country, gear type, year, and supra-region.
+Selects only the country and supra-region of interest.
 
-### Fuel costs
-
-The following code block produces a bar plot showing fuel costs by country and year.
 
 ```{r Fuel cost, message=FALSE, warning=FALSE, fig.width= 13, fig.height= 8}
+AER_wide <- AER %>%
+  dplyr::group_by(country_name, gear_type, year, vessel_length, variable_name) %>%
+  dplyr::summarise(total_value = sum(value, na.rm = TRUE)) %>%
+  pivot_wider(names_from  = variable_name,
+              values_from = total_value)
+
+AER_wide = AER_wide %>% filter(country_name %in% Country_CS)
+
+
+```
+
+
+### Join AER - FDI
+
+The second stage of the analysis involves merging these two datasets. The fields that are used to combine the two subdasets AER and FDI are: (1) country_name, (2) year, (3) fishing_tech, (4) vessel_length. We obtained a new dataframe, called aer.fdi.effort, which aligns the values of Total.Fishing.Days from AER and FDI. We obtained a new dataframe, called aer.fdi.effort, in which the values of the Fishing days from AER and FDI are aligned with respect to country_name, year, fishing_tech and vessel_length. In addition, the percentage of the corresponding composition of the Fishing days from FDI by fishing technique is reported. Finally, the ratio between the values of Fishing days from the two data sources is computed. 
+
+A preliminary inspection of the ratio values were performed.
+
+```{r join AER FDI, message=FALSE, warning=FALSE}
+
+FDI_check_fishday = FDI_effort_sf %>%
+                    st_drop_geometry() %>% 
+                    group_by(year,vessel_length, gear_type) %>%
+                    summarise(sum_days = sum(totfishdays))
+
+
+a = FDI_check_fishday %>% 
+  left_join(AER_wide, by = c("year","vessel_length", "gear_type")) %>% 
+  mutate(ratio = sum_days/Fishing_days * 100) 
+
+a %>% 
+  ggplot(aes(y = Fishing_days, x = sum_days))+
+  geom_point()+
+  geom_smooth(aes(fill = vessel_length), method = "lm")+
+  xlab("FDI fishing days")+
+  ylab("AED fishing days")+
+  facet_wrap(~ vessel_length)+
+  theme_light()
+
+```
+
+### Redistribute economic variables 
+
+#### Applying Sala et al. fuel consumption model
+
+Defines the parameters of the Sala model: Table 8 Sala et al., 2022 dFC = m × LOA + q → daily fuel consumption as a function of vessel length.
+(<https://www.nature.com/articles/s41597-022-01478-0>)
+
+Then, it is also possible to observe a series of linear relationships between Fishing Days and the economic parameters (Energy consumption, and Energy costs).
+Having the parameters of this relationship, it is possible to use the spatial information in the FDI to transform the spatial values of Fishing Days into corresponding values of Energy consumption and Energy costs. A series of linear models was fitted using these data.
+Namely, the Consumption coefficient for each Country, Fishing Technique and Vessel length was estimated using the formula: 
+
+Energy consumption = 𝛽 x Fishing days
+
+The values of 𝛽 obtained using this approach are presented and visually depicted.
+
+```{r Fishing Days and the economic parameters, message=FALSE, warning=FALSE}
+
+AER_wide %>% 
+  ggplot(aes(x = Fishing_days, y = Energy_costs, fill = vessel_length))+
+  geom_point()+
+  geom_smooth(method = "lm")+
+  facet_wrap(~ vessel_length, scale = "free")+
+  theme_light()+
+  ggtitle("Energy consumption = 𝛽 x Fishing days")
+
+
+coeff_table_FishDay_EC<- AER_wide %>%
+group_by(vessel_length) %>%
+do(tidy(lm(Energy_costs ~ Fishing_days, data = .))) %>%
+ungroup() %>%
+filter(term == "Fishing_days") %>% 
+select(vessel_length, estimate, p.value) %>%
+rename(beta_EC = estimate) %>% 
+drop_na()
+
+
+```
+
+Then, the relationship between Energy Costs and Energy consumption was investigated. Namely, the Cost coefficient for each Country was estimated using the formula:
+Energy Costs =  𝛽 x Energy consumption
+
+```{r coeff energy consumption, message=FALSE, warning=FALSE}
+
+AER_wide %>% 
+  ggplot(aes(x = Energy_consumption, y = Energy_costs, fill = vessel_length))+
+  geom_point()+
+  geom_smooth(method = "lm")+
+  facet_wrap(~ vessel_length, scale = "free")+
+  theme_light()+
+  ggtitle("Energy Costs =  𝛽 x Energy consumption")
+
+coeff_table_EC_Econs<- AER_wide %>%
+group_by(vessel_length) %>%
+do(tidy(lm(Energy_costs ~ Energy_consumption, data = .))) %>%
+ungroup() %>%
+filter(term == "Energy_consumption") %>% 
+select(vessel_length, estimate, p.value) %>%
+rename(beta_Econs = estimate) %>% 
+drop_na()
+
+
+```
+
+Add beta coefficient to FDI data
+
+```{r add beta coef to FDI, message=FALSE, warning=FALSE, fig.width= 14, fig.height= 7}
+FDI_effort_CS <- FDI_effort_sf %>%
+                st_drop_geometry() %>%
+                group_by(cscode,year,vessel_length, gear_type, supra_region) %>%
+                summarise(totfishdays = round(sum(totfishdays, na.rm = TRUE),1)) %>%
+                group_by(year,vessel_length, gear_type,supra_region) %>%
+                mutate(sum_days = sum(totfishdays)) %>%
+                mutate(effort_share = ifelse(sum_days > 0,
+                              totfishdays / sum_days,
+                              0))
+
+
+FDI_effort_CS_beta = FDI_effort_CS %>% 
+                      inner_join(coeff_table_FishDay_EC[,1:2]) %>% 
+                      inner_join(coeff_table_EC_Econs[,1:2])
+  
+fdi_aer_disagg = FDI_effort_CS_beta %>% 
+                  mutate(Energy_consumption = beta_EC * totfishdays,
+                         Energy_Costs = beta_Econs * Energy_consumption)
+
+ggplot()+
+  geom_bar(data = fdi_aer_disagg, aes(x = Energy_Costs, y = vessel_length), stat = "identity", position = "dodge")+
+  facet_wrap(~ year, nrow = 2)+
+  theme_light()+
+  ggtitle("Fuel cost by Year")
+
+
+```
+
+
+```{r disaggregate by tot fish days, message=FALSE, warning=FALSE}
+# 
+AER_wide_sel = AER_wide %>%  select(year, vessel_length,gear_type,
+                     Gross_value_of_landings,Other_income,
+                    Repair_maintenance_costs, Other_variable_costs,Other_non_variable_costs,Personnel_costs,
+                             Value_of_unpaid_labour)
+
+aer_fdi <- fdi_aer_disagg %>%
+            inner_join(AER_wide_sel, by = c("year" ,"vessel_length", "gear_type"))
+
+aer_fdi_disagg <- aer_fdi %>%
+   mutate( GVL_disagg  = Gross_value_of_landings * effort_share,
+    Other_income_disagg = Other_income * effort_share,
+    Repair_maintenance_costs_disagg = Repair_maintenance_costs*effort_share,
+    Other_variable_costs_disagg = Other_variable_costs * effort_share,
+    Other_non_variable_costs_disagg = Other_non_variable_costs * effort_share,
+    Personnel_costs_disagg =  Personnel_costs * effort_share,
+    Value_of_unpaid_labour_disagg = Value_of_unpaid_labour * effort_share) %>% 
+   
+   select(cscode, year ,vessel_length, gear_type, supra_region, GVL_disagg, Other_income_disagg, Repair_maintenance_costs_disagg,
+         Other_variable_costs_disagg, Other_non_variable_costs_disagg, Personnel_costs_disagg, Value_of_unpaid_labour_disagg,
+         totfishdays, Energy_consumption,Energy_Costs )
+
+x =   aer_fdi_disagg %>% 
+  mutate(
+    GVA = GVL_disagg + Other_income_disagg -
+      Energy_Costs - Repair_maintenance_costs_disagg -
+      Other_variable_costs_disagg - Other_non_variable_costs_disagg,
+    
+    Gross_profit = GVL_disagg + Other_income_disagg -
+      Personnel_costs_disagg - Value_of_unpaid_labour_disagg -
+      Energy_Costs - Repair_maintenance_costs_disagg -
+      Other_variable_costs_disagg - Other_non_variable_costs_disagg)
+
+```
+
+```{r}
+xmap = x %>% 
+      group_by(cscode, vessel_length) %>% 
+      drop_na() %>% 
+      summarise(EC = mean(Energy_Costs),
+                GVA = mean(GVA),
+                Gross_profit  = mean(Gross_profit),
+                totfishdays = mean(totfishdays))
+
+g1 = xmap %>% 
+  inner_join(csquare) %>% 
+  st_as_sf %>% 
+  
+  ggplot() +
+  geom_sf(data = world, fill = "grey") + 
+  geom_sf(aes(fill = EC), colour = NA, inherit.aes = TRUE) + 
+  scale_fill_viridis_c("Energy Cost (Euros)", option = "magma", 
+                       na.value = NA) + 
+  facet_wrap(~ vessel_length)+
+  theme_cowplot() +  
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        legend.position = "bottom",
+        legend.key.width = unit(0.8, "cm"),     
+        legend.key.height = unit(0.4, "cm"),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 5),
+        legend.box.margin = margin(t = 5, b = 5),
+        legend.box.spacing = unit(0.1, "cm"))+
+  scale_x_continuous(limits = c(xmin,xmax)) +
+  scale_y_continuous(limits = c(ymin,ymax))+
+  ggtitle("Energy Cost")
+print(g1)
+
+g2 = xmap %>% 
+  inner_join(csquare) %>% 
+  st_as_sf %>% 
+  ggplot() +
+  geom_sf(data = world, fill = "grey") + 
+  geom_sf(aes(fill = GVA), colour = NA, inherit.aes = TRUE) + 
+  scale_fill_viridis_c("GVA", option = "cividis", 
+                      na.value = NA) + 
+  theme_cowplot() +  
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        legend.position = "bottom",
+        legend.key.width = unit(0.8, "cm"),     
+        legend.key.height = unit(0.4, "cm"),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 5),
+        legend.box.margin = margin(t = 5, b = 5),
+        legend.box.spacing = unit(0.1, "cm"))+
+  scale_x_continuous(limits = c(xmin,xmax)) +
+  scale_y_continuous(limits = c(ymin,ymax))+
+    facet_wrap(~ vessel_length)+
+  ggtitle("Gross Value Added")
+
+print(g2)
+
+g3 = xmap %>% 
+  inner_join(csquare) %>% 
+  st_as_sf %>% 
+  ggplot() +
+  geom_sf(data = world, fill = "grey") + 
+  geom_sf(aes(fill = Gross_profit), colour = NA, inherit.aes = TRUE) + 
+  scale_fill_viridis_c("Gross_profit", option = "rocket", 
+                        na.value = NA) + 
+  theme_cowplot() +  
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        legend.position = "bottom",
+        legend.key.width = unit(0.8, "cm"),     
+        legend.key.height = unit(0.4, "cm"),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 5),
+        legend.box.margin = margin(t = 5, b = 5),
+        legend.box.spacing = unit(0.1, "cm"))+
+  scale_x_continuous(limits = c(xmin,xmax)) +
+  scale_y_continuous(limits = c(ymin,ymax))+
+    facet_wrap(~ vessel_length)+
+  ggtitle("Gross Profits")
+
+print(g3)
+
+g4 = xmap %>% 
+  inner_join(csquare) %>% 
+  st_as_sf %>% 
+  ggplot() +
+  geom_sf(data = world, fill = "grey") + 
+  geom_sf(aes(fill = totfishdays), colour = NA, inherit.aes = TRUE) + 
+  scale_fill_viridis_c("Fishing days", option = "plasma", 
+                        na.value = NA) + 
+  theme_cowplot() +  
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        legend.position = "bottom",
+        legend.key.width = unit(0.8, "cm"),     
+        legend.key.height = unit(0.4, "cm"),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 5),
+        legend.box.margin = margin(t = 5, b = 5),
+        legend.box.spacing = unit(0.1, "cm"))+
+  scale_x_continuous(limits = c(xmin,xmax)) +
+  scale_y_continuous(limits = c(ymin,ymax))+
+    facet_wrap(~ vessel_length)+
+
+  ggtitle("Fishing days")
+
+print(g4)
+
+
+write.csv(x, "Spatial_Economic_value.csv",
+          row.names = FALSE)
+```
+
+
+### Other method - using standard coefficient
+
+```{r fuel coeff, message=FALSE, warning=FALSE}
+Fuel_coefficients = data.frame(gear_type = c("OTB"),
+                               m = c(1.470),
+                               q = c(12.811))
+```
+
+```{r}
 AER_wide <- AER %>%
   dplyr::group_by(country_name, supra_region, gear_type, year, vessel_length, variable_name) %>%
   dplyr::summarise(total_value = sum(value, na.rm = TRUE)) %>%
@@ -135,34 +426,9 @@ Fuel_cost <- AER_wide %>%
             Energy_consumption_sum = sum(Energy_consumption)) %>% 
   mutate(Fuel_cost = Energy_cost_sum / Energy_consumption_sum)
 
-
-ggplot()+
-  geom_bar(data = Fuel_cost, aes(x = Fuel_cost, y = country_name, fill = supra_region), stat = "identity", position = "dodge")+
-  facet_wrap(~ year, nrow = 2)+
-  theme_light()+
-  ggtitle("Fuel cost by Supra-region, Country and Year")
-```
-
-Selects only the country and supra-region of interest and adds fuel cost data.
-Merges spatial fishing effort with economic variables for matching: year, vessel length, gear type, supra-region.
-
-### Join AER - FDI
-
-```{r join AER FDI, message=FALSE, warning=FALSE}
 AER_wide = AER_wide %>% filter(country_name %in% Country_CS, supra_region %in% supra_reg_CS)
 
 AER_wide = AER_wide %>% left_join(Fuel_cost)
-
-
-```
-
-### Redistribute economic variables 
-
-Computes the total fishing days for each economic grouping.
-Distributes each economic variable across c-squares proportionally to fishing effort (fishing days) in each cell.
-
-```{r disaggregate by tot fish days, message=FALSE, warning=FALSE}
-
 FDI_effort_CS <- FDI_effort_sf %>%
                 st_drop_geometry() %>% 
                 group_by(cscode,year,vessel_length, gear_type,supra_region) %>%
@@ -188,19 +454,11 @@ aer_fdi_disagg <- aer_fdi %>%
    select(cscode, year ,vessel_length, gear_type, supra_region, GVL_disagg, Other_income_disagg, Repair_maintenance_costs_disagg,
          Other_variable_costs_disagg, Other_non_variable_costs_disagg, Personnel_costs_disagg, Value_of_unpaid_labour_disagg,
          totfishdays, Fuel_cost)
-
 ```
 
-### Applying Sala et al. fuel consumption model
 
-Defines the parameters of the Sala model: Table 8 Sala et al., 2022 dFC = m × LOA + q → daily fuel consumption as a function of vessel length.
-(<https://www.nature.com/articles/s41597-022-01478-0>)
 
-```{r fuel coeff, message=FALSE, warning=FALSE}
-Fuel_coefficients = data.frame(gear_type = c("OTB"),
-                               m = c(1.470),
-                               q = c(12.811))
-```
+
 
 Adds the fuel model parameters and assigns an average LOA to length classes.
 If you have VMS data and MMSI you can have more detailed LOA info
