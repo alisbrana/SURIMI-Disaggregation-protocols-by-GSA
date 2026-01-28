@@ -241,65 +241,8 @@ FDI_CS_data = FDI_effort_CS
 
 ```
 
-### Step 2 - Open and subset AER data
 
-```{r AER data, eval=F, message=FALSE, warning=FALSE}
-AER_FS = read.xlsx(paste0(wd,"STECF_24-07_EU Fleet Economic and Transversal data/STECF 24-07 - EU Fleet Economic and Transversal data_fleet segment level.xlsx"), sheet = 2) %>% 
-           filter(year %in% Year_CS & fishing_tech %in% c("DTS") & country_code %in% Country_CS) 
-
-write.csv(AER_FS, paste0(fd,"Economic_data.csv"), row.names = F)
-
-```
-
-#### Descriptive analysis AER data
-
-```{r AER summary, message=FALSE, warning=FALSE,  fig.height= 10, fig.width= 12, , fig.align='left'}
-
-AER_CS = read.csv(paste0(fd,"Economic_data.csv"))
-
-AER_CS = AER_CS %>%  
-          rename(vlength = vessel_length) %>% 
-          select(c(country_code, year, fishing_tech, vlength, variable_group, variable_name, variable_code, value, unit ))
-
-data_sum = AER_CS %>% 
-            group_by(country_code, fishing_tech,vlength, variable_group, variable_name, unit) %>% 
-            summarise(val = sum(value,na.rm = T)) %>% 
-            rename(gear = fishing_tech)
-
- data_sum %>% 
-   group_by(variable_group, variable_name) %>% 
-   mutate(val_prop = val/sum(val)*100) %>% 
-   ggplot()+
-   geom_bar(aes(y = variable_name, x= val_prop, fill = vlength), stat = "identity")+
-   facet_wrap(~ variable_group, scales = "free")+ 
-   scale_fill_brewer(palette = "Set1")+
-   xlab("")+
-   ylab("")+
-   facet_wrap(~ gear)+
-   theme_classic()
- 
- AER_wide = AER_CS %>% 
-            select(-c(variable_code, unit, variable_group)) %>% 
-            dcast(...~ variable_name, value.var = "value")
-
- write.csv(AER_wide, paste0(fd,"Economic_data_wide.csv"), row.names = F)
-
-```
-
-### Step 3 - Join AER with - FDI Effort-Landing
-
-```{r AER -Join FDI , message=FALSE,warning=FALSE}
-
-FDI_CS_data = read.csv(paste0(fd,"FDI_effort_CS.csv")) %>% mutate(quarter = as.character(quarter))
-AER_CS = read.csv(paste0(fd,"Economic_data.csv")) %>% rename(vlength = vessel_length)
-
-
-FDI_sub = unique(FDI_CS_data[,c("year","quarter", "vlength", "id", "tot_fish_day" )])
-AER_sub = AER_wide[,c("year", "vlength", "Fishing days", "Days at sea")]
-
-```
-
-### Step 4 - Find vessels track by Global Fishing Watch (GFW)
+### Step 2 - Find vessels track by Global Fishing Watch (GFW)
 
 #### Extrapolate data
 
@@ -398,7 +341,7 @@ write.csv(
 
 ```
 
-### Step 5 - Find port visited by Global Fishing Watch (GFW)
+### Step 3 - Find port visited by Global Fishing Watch (GFW)
 
 After obtaining vessels within a specified area for a particular type of gear in a given year, the ports visited by these vessels are also downloaded. This process is undertaken in accordance with a methodology that has been described and validated by GFW. This provides a comprehensive overview of the port's operational dynamics, including the place of landing and the number of vessels arriving at each port.
 
@@ -923,6 +866,90 @@ write_sf(GFW_effort_CS_sf, paste0(fd,"GFW_effort_port_by_icell.shp"))
 
 ```
 
+### Step 4 - Join AER with - FDI Effort-Landing
+Open and subset AER data
+
+```{r AER data, eval=F, message=FALSE, warning=FALSE}
+AER_FS = read.xlsx(paste0(wd,"STECF_24-07_EU Fleet Economic and Transversal data/STECF 24-07 - EU Fleet Economic and Transversal data_fleet segment level.xlsx"), sheet = 2) %>% 
+           filter(year %in% Year_CS & fishing_tech %in% c("DTS") & country_code %in% Country_CS) 
+
+write.csv(AER_FS, paste0(fd,"Economic_data.csv"), row.names = F)
+
+```
+
+#### Descriptive analysis AER data
+
+```{r AER summary, message=FALSE, warning=FALSE,  fig.height= 10, fig.width= 12, , fig.align='left'}
+
+AER_CS = read.csv(paste0(fd,"Economic_data.csv"))
+
+AER_CS <- AER_CS %>%
+  filter(fishing_tech %in% c("DTS")) %>% 
+  mutate(gear_type = recode(fishing_tech, 
+                            "DTS" = "OTB")) %>% 
+  filter(variable_name %in% c("Fishing days","Energy costs", "Energy consumption", "Gross value of landings","Other income",
+                              "Repair & maintenance costs", "Other variable costs","Personnel costs",
+                              "Value of unpaid labour","Other non-variable costs")) %>%
+  mutate(variable_name =  gsub(" ", "_", variable_name)) %>% 
+  mutate(variable_name =  gsub("_&", "", variable_name)) %>% 
+  mutate(variable_name =  gsub("-", "_", variable_name))
+
+AER_wide <- AER_CS %>%
+  dplyr::group_by(country_name, gear_type, year, vessel_length, variable_name) %>%
+  dplyr::summarise(total_value = sum(value, na.rm = TRUE)) %>%
+  pivot_wider(names_from  = variable_name,
+              values_from = total_value)
+
+data_sum = AER_CS %>% 
+            group_by(country_code, fishing_tech,vessel_length, variable_group, variable_name, unit) %>% 
+            summarise(val = sum(value,na.rm = T)) %>% 
+            rename(gear = fishing_tech)
+
+ data_sum %>% 
+   group_by(variable_group, variable_name) %>% 
+   mutate(val_prop = val/sum(val)*100) %>% 
+   ggplot()+
+   geom_bar(aes(y = variable_name, x= val_prop, fill = vessel_length), stat = "identity")+
+   facet_wrap(~ variable_group, scales = "free")+ 
+   scale_fill_brewer(palette = "Set1")+
+   xlab("")+
+   ylab("")+
+   facet_wrap(~ gear)+
+   theme_classic()
+ 
+  write.csv(AER_wide, paste0(fd,"Economic_data_wide.csv"), row.names = F)
+
+```
+
+### Step 5 - Check consistency
+
+```{r AER -Join FDI , message=FALSE,warning=FALSE}
+
+FDI_CS_data = read.csv(paste0(fd,"FDI_effort_CS.csv")) %>% mutate(quarter = as.character(quarter))
+FDI_sub = unique(FDI_CS_data[,c("year","gear", "vlength", "id", "tot_fish_day" )])
+
+FDI_check_fishday = FDI_sub %>%
+                    group_by(year,vlength, gear) %>%
+                    summarise(sum_days = sum(tot_fish_day)) %>% 
+                    rename(gear_type = gear,
+                           vessel_length = vlength)
+
+
+a = FDI_check_fishday %>% 
+  left_join(AER_wide, by = c("year","vessel_length", "gear_type")) %>% 
+  mutate(ratio = sum_days/Fishing_days * 100) 
+
+a %>% 
+  ggplot(aes(y = Fishing_days, x = sum_days))+
+  geom_point()+
+  geom_smooth(aes(fill = vessel_length), method = "lm")+
+  xlab("FDI fishing days")+
+  ylab("AED fishing days")+
+  theme_light()
+
+
+```
+
 ### Step 6 - Disaggregation process
 
 #### EU DCF economic AER disaggregation by ICES cell
@@ -942,35 +969,46 @@ $$
 
 ```{r AER dis, message=FALSE, warning=FALSE, fig.align='center', fig.width=7,fig.height=4}
 
-AER = read.csv(paste0(fd,"Economic_data_wide.csv")) %>% rename(vssl_ln = vlength) %>% 
-  dplyr::select(c("vssl_ln", "Fishing.days", "Energy.costs", "Gross.value.of.landings"))
-  
+AER_wide = read.csv(paste0(fd,"Economic_data_wide.csv")) %>% 
+            rename(vssl_ln = vessel_length,
+                   ger_typ = gear_type)
+AER_wide_sel = AER_wide %>%  select(year, vssl_ln,ger_typ,
+                     Gross_value_of_landings,Other_income,
+                    Repair_maintenance_costs, Other_variable_costs,Other_non_variable_costs,Personnel_costs,
+                             Value_of_unpaid_labour)
+
 FDI_effort_CS_sf = read_sf(paste0(fd,"FDI_effort_CS.shp"))
 
 FDI_id = FDI_effort_CS_sf %>% 
-          group_by(cscode, ger_typ, vssl_ln ) %>% 
+          group_by(cscode, ger_typ, vssl_ln, year) %>% 
           summarise(day = sum(ttfshdy)) %>% 
           rename(id = cscode)
 
 FDI_vl = FDI_id %>% 
-          group_by(ger_typ,vssl_ln) %>% 
+          group_by(ger_typ,vssl_ln, year) %>% 
           mutate(tot_day = sum(day)) %>% 
           st_drop_geometry() %>% 
-          ungroup()
+          ungroup() %>% 
+          mutate(effort_share = day / tot_day)
 
-FDI_vl <- FDI_vl %>%
-  group_by(ger_typ) %>% 
-  mutate(effort_share = day / tot_day)
-
-FDI_vl <- FDI_vl %>%
-          left_join(AER, by = c("vssl_ln"))
-
-FDI_vl <- FDI_vl %>%
-  mutate(across(c(Fishing.days, Energy.costs, Gross.value.of.landings), ~ .x * effort_share, .names = "{.col}_AER")) %>% 
-  dplyr::select(-c(Fishing.days,Energy.costs,Gross.value.of.landings))
+FDI_AER <- FDI_vl %>%
+          left_join(AER_wide_sel, by = c("vssl_ln", "year", "ger_typ"))
 
 
-write.csv(FDI_vl, paste0(fd,"FDI_AER_by_icell.csv"), row.names = F)
+FDI_AER_disagg <- FDI_AER %>%
+   mutate( GVL_disagg  = Gross_value_of_landings * effort_share,
+    Other_income_disagg = Other_income * effort_share,
+    Repair_maintenance_costs_disagg = Repair_maintenance_costs*effort_share,
+    Other_variable_costs_disagg = Other_variable_costs * effort_share,
+    Other_non_variable_costs_disagg = Other_non_variable_costs * effort_share,
+    Personnel_costs_disagg =  Personnel_costs * effort_share,
+    Value_of_unpaid_labour_disagg = Value_of_unpaid_labour * effort_share) %>% 
+   
+   select(id, year ,vssl_ln, ger_typ, GVL_disagg, Other_income_disagg, Repair_maintenance_costs_disagg,
+         Other_variable_costs_disagg, Other_non_variable_costs_disagg, Personnel_costs_disagg, Value_of_unpaid_labour_disagg,
+         day)
+
+write.csv(FDI_AER_disagg, paste0(fd,"FDI_AER_by_icell.csv"), row.names = F)
 
 ```
 
@@ -992,7 +1030,7 @@ GFW_id = GFW_effort_port_by_icell %>%
 
 FDI.AER_id = FDI_AER_by_icell %>% 
           group_by(id,  ger_typ, vssl_ln ) %>% 
-          summarise(day = sum(Fishing.days_AER)) 
+          summarise(day = sum(day)) 
 
 ### check data effort of FDI and GFW
 
@@ -1003,36 +1041,89 @@ FDI_GFW_plot = ggplot(data = FDI_GFW, aes(x = day, y = h))+
   geom_point()+
   geom_smooth(method = "lm")+
   theme_bw()+
-  xlab("FDI-AER - Fishing days \nby ices cell")+
+  xlab("FDI - Fishing days \nby ices cell")+
   ylab("GFW - Fishing hours \nby ices cell")
 
 FDI_GFW_plot
 
 ```
 
-#### FDI effort - AER disaggregation by spatial ICES cells
+#### Economic disaggregation process - Energy consumption and Energy costs
+#### Applying Sala et al. fuel consumption model
 
-Since there is a linear relationship between GFW effort and FDI fishing days, we can simply divide the FDI data by cell by the number of vessels in a given cell. The resulting map is indicative of spatial variations in the GVL within the designated case study area.
+Since there is a linear relationship between GFW effort and FDI fishing days, we can simply use the parameters of the Sala model: Table 8 Sala et al., 2022 dFC = m × LOA + q → daily fuel consumption as a function of vessel length.
+(<https://www.nature.com/articles/s41597-022-01478-0>)
 
-$$
-GVL~by~vessel = \frac{GVL~by~cell_{(g,l,icell)}}{n.~vessel_{(g,l,icell)}}
-$$
+```{r fuel coeff, message=FALSE, warning=FALSE}
+Fuel_coefficients = data.frame(Gear = c("OTB"),
+                               m = c(1.470),
+                               q = c(12.811))
 
-*Where g is the gear type, l is the vessel length, and icell is the ices cell.*
+AER_FuelCost = read.csv(paste0(fd,"Economic_data.csv")) %>% 
+  filter(fishing_tech %in% c("DTS")) %>% 
+  mutate(gear_type = recode(fishing_tech, 
+                            "DTS" = "OTB")) %>% 
+  filter(variable_name %in% c("Energy consumption", "Energy costs")) %>%
+  mutate(variable_name =  gsub(" ", "_", variable_name)) %>% 
+  mutate(variable_name =  gsub("_&", "", variable_name)) %>% 
+  mutate(variable_name =  gsub("-", "_", variable_name)) %>% 
+  select(year, gear_type,vessel_length,variable_name, value) %>% 
+  pivot_wider(
+    names_from = variable_name, 
+    values_from = value 
+    )
+
+Fuel_cost <- AER_FuelCost %>%
+  group_by(gear_type, year) %>% 
+  summarise(Energy_cost_sum = sum(Energy_costs),
+            Energy_consumption_sum = sum(Energy_consumption)) %>% 
+  mutate(Fuel_cost = Energy_cost_sum / Energy_consumption_sum)
+```
+
+Computes:
+
+-   daily fuel consumption = dFC = m ⋅ LOA + q
+
+-   annual consumption = FC = dFC \* Total Fishing days (L/year)
+
+-   annual energy cost per cell = FC \* fuel cost
+
+```{r FC, message=FALSE, warning=FALSE}
+
+GFW_eco = GFW_effort_port_by_icell %>%  
+  left_join(Fuel_coefficients) %>% 
+  left_join(fleetReg[,c("MMSI", "LOA")])
+
+
+FW_eco = GFW_eco %>%
+          mutate(Energy_consumption = (q + m * LOA) * App_F_H ,
+          Energy_Costs = Energy_consumption * Fuel_cost$Fuel_cost)
+
+ggplot()+
+  geom_bar(data = FW_eco, aes(x = Energy_Costs, y = vssl_ln, fill = vssl_ln ), stat = "identity", position = "dodge")+
+  theme_light()+
+  ggtitle("Fuel cost by Year")
+
+
+
+```
+
+
+Calculate GVA and Gross Profit using new Energy Costs and Energy Consumption
 
 ```{r disaggregate data by ices cell, message=FALSE, warning=FALSE}
-gfw_df = GFW_effort_port_by_icell %>% 
-          group_by(id, vssl_ln) %>% 
-          mutate(n_track = n()) %>% 
-          mutate(n_prop = n_track * sum(n_track)) %>% 
-          ungroup()
-
-gfw_fdi_merged_df <- gfw_df %>%
+gfw_fdi_merged_df <- FW_eco %>%
                       left_join(FDI_AER_by_icell, by = c("id", "vssl_ln"))
 
-final_df <- gfw_fdi_merged_df %>%
-    mutate(across(c(Fishing.days_AER, Energy.costs_AER, Gross.value.of.landings_AER), ~ .x / n_track, .names = "{.col}_by_vessel")) %>% 
-  dplyr::select(-c(Fishing.days_AER,Energy.costs_AER,Gross.value.of.landings_AER))
+final_df <- gfw_fdi_merged_df %>%  mutate(
+    GVA = GVL_disagg + Other_income_disagg -
+      Energy_Costs - Repair_maintenance_costs_disagg -
+      Other_variable_costs_disagg - Other_non_variable_costs_disagg,
+    
+    Gross_profit = GVL_disagg + Other_income_disagg -
+      Personnel_costs_disagg - Value_of_unpaid_labour_disagg -
+      Energy_Costs - Repair_maintenance_costs_disagg -
+      Other_variable_costs_disagg - Other_non_variable_costs_disagg)
 
 ```
 
@@ -1041,42 +1132,164 @@ final_df <- gfw_fdi_merged_df %>%
 
 Map the Gross Value of Landings (GVL) resulting from the disaggregation process
 
-```{r map GVL}
-map_GVL = ggplot()+
-  geom_sf(data = final_df, aes(color = log(Gross.value.of.landings_AER_by_vessel)))+
-  scale_color_viridis_c("log(GVL)",option = "D",  na.value = "white")+ 
+```{r map GVL by MMSI, message=FALSE, warning=FALSE}
+
+map_Gross_profit = ggplot()+
+  geom_sf(data = final_df, aes(color = log(Gross_profit)))+
+  scale_color_viridis_c("log(Gross_profit)",option = "D",  na.value = "white")+
   geom_sf(data = FDI_id, fill = "NA")+
   geom_sf(data = world)+
   coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax))+
   annotation_scale(location = "tl", width_hint = 0.5) +
-  annotation_north_arrow(location = "tl", which_north = "true", 
+  annotation_north_arrow(location = "tl", which_north = "true",
                          pad_x = unit(0.75, "in"), pad_y = unit(0.5, "in"),
                          style = north_arrow_fancy_orienteering) +
-  ggtitle(paste0("Disaggregate GVL data result - point"))+
+  ggtitle(paste0("Disaggregate Gross_profit data result - point"))+
   theme_light()
 
-map_GVL
+map_Gross_profit
 
-
-final_df_by_ices = FDI_id %>%
-  select(geometry) %>% 
-  st_join(final_df)
-
-final_df_by_ices %>% 
-   ggplot +  
-  geom_sf(aes(fill = log(Gross.value.of.landings_AER_by_vessel)))+
+map_EnergyCost = ggplot()+
+  geom_sf(data = final_df, aes(color = log(Energy_Costs)))+
+  scale_color_viridis_c("log(Energy_Costs)",option = "C",  na.value = "white")+
+  geom_sf(data = FDI_id, fill = "NA")+
   geom_sf(data = world)+
-  scale_fill_viridis_c("log(Gross Value of Landings)",option = "inferno",  na.value = "white")+ 
   coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax))+
   annotation_scale(location = "tl", width_hint = 0.5) +
-  annotation_north_arrow(location = "tr", which_north = "true", 
-                         pad_x = unit(0.1, "in"), pad_y = unit(0.1, "in"),
+  annotation_north_arrow(location = "tl", which_north = "true",
+                         pad_x = unit(0.75, "in"), pad_y = unit(0.5, "in"),
                          style = north_arrow_fancy_orienteering) +
-  ggtitle(paste0("Disaggregate GVL data result - ices cells"))+
-  theme_light()+
-  theme(legend.position = "bottom")
+  ggtitle(paste0("Disaggregate Energy_Costs data result - point"))+
+  theme_light()
 
-write_sf(final_df_by_ices, paste0(fd, "final_df_by_ices.shp"))
+map_EnergyCost
+
+
+map_GVA = ggplot()+
+  geom_sf(data = final_df, aes(color = log(GVA)))+
+  scale_color_viridis_c("log(GVA)",option = "E",  na.value = "white")+
+  geom_sf(data = FDI_id, fill = "NA")+
+  geom_sf(data = world)+
+  coord_sf(xlim = c(xmin, xmax), ylim = c(ymin, ymax))+
+  annotation_scale(location = "tl", width_hint = 0.5) +
+  annotation_north_arrow(location = "tl", which_north = "true",
+                         pad_x = unit(0.75, "in"), pad_y = unit(0.5, "in"),
+                         style = north_arrow_fancy_orienteering) +
+  ggtitle(paste0("Disaggregate GVA data result - point"))+
+  theme_light()
+
+map_GVA
+
+```
+
+```{r maps, message=FALSE, warning=FALSE}
+
+library(cowplot)
+final_df_by_ices = final_df %>% 
+                    st_drop_geometry() %>% 
+                    group_by(id, vssl_ln, Gear) %>% 
+                    summarise(EC = mean(Energy_Costs), 
+                              Gross_profit = mean(Gross_profit), 
+                              GVA = mean(GVA),
+                              totFishHours = sum(App_F_H)) %>% 
+  
+                    left_join(FDI_id %>% select(geometry, id))
+  
+g1 = final_df_by_ices %>% 
+  st_as_sf %>% 
+  
+  ggplot() +
+  geom_sf(data = world, fill = "grey") + 
+  geom_sf(aes(fill = EC), colour = NA, inherit.aes = TRUE) + 
+  scale_fill_viridis_c("Energy Cost (Euros)", option = "magma", 
+                       na.value = NA) + 
+  facet_wrap(~ vssl_ln)+
+  theme_cowplot() +  
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        legend.position = "bottom",
+        legend.key.width = unit(0.8, "cm"),     
+        legend.key.height = unit(0.4, "cm"),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 5),
+        legend.box.margin = margin(t = 5, b = 5),
+        legend.box.spacing = unit(0.1, "cm"))+
+  scale_x_continuous(limits = c(xmin,xmax)) +
+  scale_y_continuous(limits = c(ymin,ymax))+
+  ggtitle("Energy Cost")
+print(g1)
+
+g2 = final_df_by_ices %>% 
+  st_as_sf %>% 
+  ggplot() +
+  geom_sf(data = world, fill = "grey") + 
+  geom_sf(aes(fill = GVA), colour = NA, inherit.aes = TRUE) + 
+  scale_fill_viridis_c("GVA", option = "cividis", 
+                      na.value = NA) + 
+  theme_cowplot() +  
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        legend.position = "bottom",
+        legend.key.width = unit(0.8, "cm"),     
+        legend.key.height = unit(0.4, "cm"),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 5),
+        legend.box.margin = margin(t = 5, b = 5),
+        legend.box.spacing = unit(0.1, "cm"))+
+  scale_x_continuous(limits = c(xmin,xmax)) +
+  scale_y_continuous(limits = c(ymin,ymax))+
+    facet_wrap(~ vssl_ln)+
+  ggtitle("Gross Value Added")
+
+print(g2)
+
+g3 = final_df_by_ices %>% 
+  st_as_sf %>% 
+  ggplot() +
+  geom_sf(data = world, fill = "grey") + 
+  geom_sf(aes(fill = Gross_profit), colour = NA, inherit.aes = TRUE) + 
+  scale_fill_viridis_c("Gross_profit", option = "rocket", 
+                        na.value = NA) + 
+  theme_cowplot() +  
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        legend.position = "bottom",
+        legend.key.width = unit(0.8, "cm"),     
+        legend.key.height = unit(0.4, "cm"),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 5),
+        legend.box.margin = margin(t = 5, b = 5),
+        legend.box.spacing = unit(0.1, "cm"))+
+  scale_x_continuous(limits = c(xmin,xmax)) +
+  scale_y_continuous(limits = c(ymin,ymax))+
+    facet_wrap(~ vssl_ln)+
+  ggtitle("Gross Profits")
+
+print(g3)
+
+g4 = final_df_by_ices %>% 
+  st_as_sf %>% 
+  ggplot() +
+  geom_sf(data = world, fill = "grey") + 
+  geom_sf(aes(fill = totFishHours), colour = NA, inherit.aes = TRUE) + 
+  scale_fill_viridis_c("Fishing hours", option = "plasma", 
+                        na.value = NA) + 
+  theme_cowplot() +  
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        legend.position = "bottom",
+        legend.key.width = unit(0.8, "cm"),     
+        legend.key.height = unit(0.4, "cm"),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 5),
+        legend.box.margin = margin(t = 5, b = 5),
+        legend.box.spacing = unit(0.1, "cm"))+
+  scale_x_continuous(limits = c(xmin,xmax)) +
+  scale_y_continuous(limits = c(ymin,ymax))+
+    facet_wrap(~ vssl_ln)+
+
+  ggtitle("Fishing hours")
+
+print(g4)
+
+
+saveRDS(final_df_by_ices, paste0(fd, "final_df_by_ices.rData"))
 ```
 
 The same disaggregation procedure can be applied to each port. Since we now know the number of vessels in each port, we can disaggregate by port, gear type and vessel length.
@@ -1091,22 +1304,23 @@ $$
 
 ```{r GVL by port, message=FALSE, warning=FALSE, fig.width= 12, fig.height= 6}
 
-n_port = final_df %>% 
-         st_drop_geometry() %>% 
-                select(MMSI, vssl_ln, port, Gear) %>% 
+n_port = final_df %>%
+         st_drop_geometry() %>%
+                select(MMSI, vssl_ln, port, Gear) %>%
                 unique() %>%
                 group_by(Gear, vssl_ln, port) %>%
                 summarise(n_vessel_port = n())
 
 
 nvessel_weighted <- n_port %>%
-                 group_by(Gear, port) %>% 
-                 mutate(weight = n_vessel_port / sum(n_vessel_port)) 
+                 group_by(Gear, port) %>%
+                 mutate(weight = n_vessel_port / sum(n_vessel_port))
 
-GVL_by_vlength = FDI_AER_by_icell %>% 
-                 group_by(ger_typ, vssl_ln) %>% 
-                 summarise(GVL = mean(Gross.value.of.landings_AER)) %>%                  rename(Gear = ger_typ)  
-                      
+GVL_by_vlength = FDI_AER_by_icell %>%
+                 group_by(ger_typ, vssl_ln) %>%
+                 summarise(GVL = mean(GVL_disagg )) %>% 
+                 rename(Gear = ger_typ)
+
 FDI_AER_nvessel <- GVL_by_vlength %>%
                          inner_join(nvessel_weighted, by = c("Gear", "vssl_ln"))
 
@@ -1116,7 +1330,7 @@ FDI_AER_nvessel <- FDI_AER_nvessel %>%
 
 
 print(
-  FDI_AER_nvessel %>% 
+  FDI_AER_nvessel %>%
     ggplot()+
     geom_bar(aes(y = reorder_within(port,GVL_by_port, vssl_ln), x = GVL_by_port, fill = vssl_ln), stat = "identity")+
     facet_wrap(~ vssl_ln, scales = "free_x")+
@@ -1132,14 +1346,14 @@ Save data results
 
 ```{r}
 
-final_df = final_df %>% 
-            select(MMSI,App_F_H, id,Gear,vssl_ln,port, lon_port, lat_port, geometry) %>% 
+final_df = final_df %>%
+            select(MMSI,App_F_H, id,Gear,vssl_ln,port, lon_port, lat_port, geometry) %>%
             rename(GFW_hours = App_F_H,
                    cscode = id,
                    vlength = vssl_ln)
-            
+
 write_sf(final_df, paste0(fd, "output_df_",Year_CS,".shp"))
-  
+
 
 ```
 
@@ -1566,8 +1780,7 @@ species_sel <- df_full %>%
 
  FDI_land_spe_filter <- df_full %>%
                     inner_join(species_sel, by = c("species", "gear")) %>% 
-                    select(-m_kg) %>% 
-                    mutate(price = yearly_value/yearly_kg)
+                    select(-m_kg)
  
 ```
 
@@ -1586,11 +1799,11 @@ for (g in seq_along(gear_filter)) {
   print(FDI_land_spe_filter %>% 
     filter(gear == gear_filter[g]) %>% 
   group_by(year, vlength, species) %>% 
-  summarise(m_price = mean(price)) %>% 
+  summarise(m_yearly_value = mean(yearly_value)) %>% 
   left_join(FAO_sp) %>%
   mutate(sp_id = paste0(Scientific_Name," (",species,")")) %>% 
   
-        ggplot(aes(x = year, y = m_price, color = vlength,
+        ggplot(aes(x = year, y = m_yearly_value, color = vlength,
                    group = interaction(species, vlength)
                    
                    )) +
@@ -1599,11 +1812,33 @@ for (g in seq_along(gear_filter)) {
         facet_wrap(~ sp_id, scales = "free", ncol = 5) +
         theme_minimal() +
         ggtitle(paste0("Species price time series for ", gear_filter[g])) +
-        ylab("Species price")+
+        ylab("Species value (kg*price) ")+
         theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
 )
   }
 
+
+ species_price = FDI_land_spe_filter %>% 
+                    group_by(species, year) %>% 
+                    summarise(m_yearly_kg = mean(yearly_kg),
+                              m_yearly_value = mean(yearly_value)) %>% 
+                    mutate(price = m_yearly_value/m_yearly_kg)
+ 
+  print(species_price %>% 
+  left_join(FAO_sp) %>%
+  mutate(sp_id = paste0(Scientific_Name," (",species,")")) %>% 
+  
+        ggplot(aes(x = year, y = price,
+                   group = species, color = sp_id)) +
+        geom_line(size = 1.1) +
+        geom_point() +
+        theme_minimal() +
+        ggtitle(paste0("Species price time series for ", gear_filter[g])) +
+        ylab("Species price (euro) ")+
+        theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+)
+
+  FDI_land_spe_filter = left_join(FDI_land_spe_filter, species_price)
 ```
 
 ```{r}
@@ -1669,22 +1904,21 @@ nvessel_port <- nvessel_port %>%
                 summarise(n_vessel_port = n())
 
 nvessel_weighted <- nvessel_port %>%
-                     group_by(year, Gear, port) %>% 
-                     mutate(weight = n_vessel_port / sum(n_vessel_port)) %>% 
+                     group_by(year, Gear, vlength) %>% 
+                     mutate(sum_nvessel = sum(n_vessel_port),
+                       weight = n_vessel_port / sum_nvessel) %>% 
                      rename(gear = Gear)
 
-FDI_land_spe_filter = readRDS(paste0(fd_price,"FDI_land_spe_filter.RData")) %>% 
-                      group_by(year, gear, vlength, species) %>% 
-                      summarise(mval = mean(yearly_value), mkg = mean(yearly_kg), mprice = mean(price))  
-                      
+FDI_land_spe_filter = readRDS(paste0(fd_price,"FDI_land_spe_filter.RData"))
+
 FDI_land_spe_nvessel <- FDI_land_spe_filter %>%
                          inner_join(nvessel_weighted, by = c("year", "gear", "vlength"))
 
 FDI_land_spe_nvessel <- FDI_land_spe_nvessel %>%
-                          mutate(
-                            mval_by_port = mval * weight,
-                            mkg_by_port = mkg * weight,
-                            mprice_by_port = mprice * weight)
+                         group_by(year, vlength, gear, species,port) %>% 
+                          summarise(
+                            mval_by_port = yearly_value * weight,
+                            mkg_by_port = yearly_kg * weight) 
 
 
 
@@ -1693,36 +1927,29 @@ FDI_land_spe_nvessel <- FDI_land_spe_nvessel %>%
 
 ```{r Add effort and rescale spatial price,fig.width=10, fig.height=8}
 
-final_effort = read_sf(paste0(fd, "final_df_by_ices.shp")) %>% 
-                rename(gear = Gear,
-                       vlength = vssl_ln,
-                       effort_shared = effrt_s,
-                       fishing_day = F__AER_,
-                       energy_cost = E__AER_,
-                       GVL = G____AE) %>% 
-                  select(MMSI, id, gear,vlength, fishing_day,energy_cost, GVL, port, lon_prt, lat_prt, n_track) %>% 
-                  drop_na()
+
+final_effort = read_sf(paste0(fd, "output_df_2021.shp")) %>% 
+                rename(gear = Gear)
+                       
 
 
-final_FDI_nvessel_port = FDI_land_spe_nvessel %>% 
-                          select(-c(mval,mkg,mprice,n_vessel_port,weight)) 
+final_FDI_nvessel_port = FDI_land_spe_nvessel 
 
-coords_port = final_effort[c("port", "lon_prt","lat_prt")] %>% st_drop_geometry() %>% unique()                           
+coords_port = final_effort[c("port", "lon_port","lat_port")] %>% st_drop_geometry() %>% unique()   
+
 spe_mval_port = final_FDI_nvessel_port %>% 
                 group_by(species, vlength, gear, port) %>% 
-                summarise(mval_mean = mean(mval_by_port), 
-                          mprice_mean = mean(mprice_by_port), 
-                          mkg_mean = mean(mkg_by_port) )  %>% 
+                summarise(mval_mean = mean(mval_by_port),mkg_mean = mean(mkg_by_port))  %>% 
                 left_join(coords_port) %>% 
-                st_as_sf(coords = c("lon_prt","lat_prt"), crs = st_crs(final_effort))
+                st_as_sf(coords = c("lon_port","lat_port"), crs = st_crs(final_effort))
   
 final_effort_cell = final_effort %>% 
-  group_by(id, vlength) %>% 
-  summarise(fishing_day = mean(fishing_day, na.rm = T))   
+  group_by(cscode, vlength) %>% 
+  summarise(fishing_hours = mean(GFW_hours, na.rm = T))   
 
 final_effort_cell %>% 
   ggplot +  
-  geom_sf(aes(fill = fishing_day))+
+  geom_sf(aes(fill = fishing_hours))+
   facet_wrap(~ vlength)+
   geom_sf(data = world)+
   scale_fill_viridis_c("fishing day",option = "inferno",  na.value = "white")+ 
@@ -1731,14 +1958,14 @@ final_effort_cell %>%
   annotation_north_arrow(location = "tr", which_north = "true", 
                          pad_x = unit(0.1, "in"), pad_y = unit(0.1, "in"),
                          style = north_arrow_fancy_orienteering) +
-  ggtitle(paste0("Disaggregate fishing day data result - ices cells"))+
+  ggtitle(paste0("Disaggregate fishing hours data result - ices cells"))+
   theme_light()+
   theme(legend.position = "bottom")
 
 spe = unique(spe_mval_port$species)
 
 coords_port = spe_mval_port %>%
-  select(port, species, mprice_mean, vlength) %>%  # keep geometry
+  select(port, species, mval_mean, vlength) %>%  # keep geometry
   unique() %>%
   rowwise() %>%
   mutate(
@@ -1755,7 +1982,7 @@ print(coords_port %>%
   ggplot()+
    geom_sf(data = world)+ 
  geom_label_repel(
-      aes(x = X, y = Y, label = port, fill = mprice_mean),
+      aes(x = X, y = Y, label = port, fill = mval_mean),
       size = 3,
       min.segment.length = 0)+   
      scale_fill_gradient(low = "yellow", high = "red", na.value = NA)+
@@ -1769,16 +1996,18 @@ print(coords_port %>%
 }
 
 final_FDI_nvessel_port %>% 
-  group_by(species, gear, vlength) %>% 
-  summarise(mean_price = mean(mprice_by_port)) %>% 
+  group_by(species, port) %>% 
+  summarise(mean_val_by_port = mean(mval_by_port ),
+            mean_kg_by_port = mean(mkg_by_port),
+    mean_price = mean_val_by_port/mean_kg_by_port) %>% 
   
-ggplot( aes(y = species, x = mean_price, fill = vlength)) +
+ggplot( aes(y = species, x = mean_price, fill = port)) +
   geom_bar(stat = "identity", position = "dodge") +
   theme_minimal() +
   scale_y_reordered() +
   labs(title = "Average price by species", x = "Mean price (€)", y = "Species")
 
-vessel_by_cell = final_effort %>% select(MMSI, id,gear, vlength) %>% st_drop_geometry() %>% unique()
+vessel_by_cell = final_effort %>% select(MMSI, cscode,gear, vlength) %>% st_drop_geometry() %>% unique()
 effort_by_cell =  final_effort_cell %>% st_drop_geometry()
 spe_by_port = spe_mval_port %>% st_drop_geometry()
 vessel_by_port = final_effort %>% select(MMSI, vlength, port) %>% st_drop_geometry() %>% unique()
@@ -1792,7 +2021,7 @@ coords_port =  spe_mval_port %>%
                 st_drop_geometry()
 
 coords_cell = final_effort %>%
-                select(id) %>%
+                select(cscode) %>%
                 unique() 
 
 write.csv(vessel_by_cell,"C:/Users/alice/OneDrive - CNR/Documenti - ABM-Fisheries-grp/General/Paper_blueconomy/Data/vessel_by_cell.csv",row.names = F)
