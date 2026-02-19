@@ -212,6 +212,7 @@ euro_species_filtered <- euro_species_filtered %>%
                            group_by(year, gear, species) %>% 
                            summarise(yearly_kg = mean(tot_fish_weight)*1000, yearly_value = mean(tot_fish_value))
                            
+                           
 euro_species_filtered %>%
    group_by(species, gear) %>%
    summarise(mvalue = mean(yearly_value), kg = (mean(yearly_kg))) %>%
