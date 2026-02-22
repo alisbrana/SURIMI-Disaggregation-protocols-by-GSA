@@ -6,79 +6,131 @@
 model surimi
 
 global {
-    file shape_file_cells <- shape_file("../includes/coords_cell.shp");
-    file shape_file_ports <- shape_file("../includes/coords_port.shp");
-    file vessel_csv <- csv_file("../includes/combined_vessel.csv", ",", true);
+    file shape_file_grid <- shape_file("../includes/SMART_Data/grid_sf.shp");
+    file shape_file_harbs <- shape_file("../includes/SMART_Data/harbs_df_sf.shp");
+    file shape_file_aggr <- shape_file("../includes/SMART_Data/IBM.agg.grid_RP.shp");
 
-    geometry shape <- envelope(shape_file_cells);
-
-   
+    geometry shape <- envelope(shape_file_grid);
+    map cell_by_idgrid <- map([]);
+    map first_idgrid_of_cfr <- map([]);
 
  init {
-    create cell from: shape_file_cells with:[id:string(read("id"))];
-    create port from: shape_file_ports with:[name:: string(read("port"))];
-    write "ports created = " + length(port);
-
-    create vessel from: vessel_csv with: [
-      name:: string(read("MMSI")),
-      vlength:: string(read("vlength")),
-      origin_port:: string(read("port")),
-      gear:: string(read("gear"))
-    ]{
-  if (vlength = "VL1218") { vl <- 1; }
-  else if (vlength = "VL1824") { vl <- 2; }
-  else if (vlength = "VL2440") { vl <- 3; }
-  else { vl <- 1; }
-  }
+    create cell from: shape_file_grid with:[
+    	id_grid:string(read("id_grid")),
+    	depth:int(read("depth"))
+    ];
     
-   
-    ask vessel {
-    port p <- one_of(port where (each.name = origin_port));
-    location <- p.location + { rnd(-3000, 3000), rnd(-3000, 3000) };
+    ask cell {
+    cell_by_idgrid[id_grid] <- self;
+}
+    
+//    first_cell_of_cfr <- map([]);
+    
+    create harbour from: shape_file_harbs with:[
+    	name::string(read("HARBOUR")), 
+    	nvessel::int(read("NVESSEL"))
+    ];
+    
+    
+//    ask cell {
+//    if (CFR != "" and !(first_cell_of_cfr contains_key CFR)) {
+//        first_cell_of_cfr[CFR] <- self;
+//    }
+//}
+
+//create vessel from: shape_file_aggr with: [
+//    CFR:: string(read("CFR")),
+//    id_grid:: string(read("id_grid"))
+//];
+
+create aggr_row from: shape_file_aggr with: [
+    CFR:: string(read("CFR")),
+    id_grid:: string(read("id_grid"))
+];
+first_idgrid_of_cfr <- map([]);
+
+ask aggr_row {
+    if (CFR != "" and !(first_idgrid_of_cfr contains_key CFR)) {
+        first_idgrid_of_cfr[CFR] <- id_grid;
     }
-   
-}
 }
 
+loop cfr over: keys(first_idgrid_of_cfr) {
 
-species cell {
-	string id;
-    aspect base {
-        draw shape color: #blue border: #black width: 1;
-    }
-}
+    create vessel {
+        CFR <- string(cfr);
+        id_grid <- string(first_idgrid_of_cfr[cfr]);
 
-species port {
-    string name;
-    aspect base {
-        draw circle(5000) color: #red border: #black;
-
-        if (name = "CHIAVARI") {
-            draw name at: location + {1000, 1000} color: #black;
+        if (cell_by_idgrid contains_key id_grid) {
+            cell c <- cell_by_idgrid[id_grid];
+            location <- c.location; // visible + consistent
+            // optional jitter to avoid overlap:
+            // location <- location + { rnd(-10,10), rnd(-10,10) };
         } else {
-            draw name at: location + {5000, 5000} color: #black;
+            location <- any_location_in(shape);
+            write "No matching cell for vessel CFR=" + CFR + " id_grid=" + id_grid;
         }
     }
 }
 
-species vessel {
-	string name;
-	string vlength <- "";
-	string origin_port <- "";
-	int vl <- nil;
-	string gear <- "";
+write "aggr rows=" + string(length(aggr_row)) + " | unique vessels=" + string(length(vessel));
 
-	aspect base {
-        draw triangle(5000 * vl) color: #green border: #black rotate: 180;
+//ask vessel {
+//    if (cell_by_idgrid contains_key id_grid) {
+//        cell c <- cell_by_idgrid[id_grid];
+//        location <- c.location;   // guaranteed visible
+//        // optional jitter to avoid overlap:
+//        //location <- location + { rnd(-10, 10), rnd(-10, 10) };
+//    } else {
+//        location <- any_location_in(shape);
+//        write "No matching cell for vessel CFR=" + CFR + " id_grid=" + id_grid;
+//    }
+//}
+}
+}    
+
+species cell {
+	string id_grid <- "";
+	int depth <- 0;
+    aspect base {
+//        draw shape color: #blue border: #black width: 1;
+	draw shape color: #blue border: #black width: 1;
     }
+}
+
+species harbour {
+	string name <- "";
+	int nvessel <- 0;
+    aspect base {
+//        draw shape color: #blue border: #black width: 1;
+	draw circle(5000) color: #red border: #black;
+
+    }
+}
+
+species vessel{
+	string CFR <- "";
+	string id_grid <- "";
+	aspect base{
+		draw triangle(5000) color: #green border: #black rotate: 180;
+		
+	}
+}
+
+species aggr_row {
+    string CFR <- "";
+    string id_grid <- "";
 }
 
 experiment surimi type: gui {
-    output {
-        display surimi type: 2d {
-            species cell aspect: base;
-            species port aspect: base;
-            species vessel aspect: base;
-        }
-    }
+
+	output {
+		display landscape type:2d {
+			species cell aspect: base ;
+			species harbour aspect: base;
+			species vessel aspect: base;
+
+		}
+	}
+
 }
