@@ -13,6 +13,7 @@ global {
     geometry shape <- envelope(shape_file_grid);
     map cell_by_idgrid <- map([]);
     map first_idgrid_of_cfr <- map([]);
+    map vessel_info_by_cfr <- map([]);
 
  init {
     create cell from: shape_file_grid with:[
@@ -45,21 +46,26 @@ global {
 
 create aggr_row from: shape_file_aggr with: [
     CFR:: string(read("CFR")),
-    id_grid:: string(read("id_grid"))
+    id_grid:: string(read("id_grid")),
+    gear:: string(read("Gear"))
 ];
 first_idgrid_of_cfr <- map([]);
+vessel_info_by_cfr <- map([]);
 
 ask aggr_row {
     if (CFR != "" and !(first_idgrid_of_cfr contains_key CFR)) {
-        first_idgrid_of_cfr[CFR] <- id_grid;
+        vessel_info_by_cfr[CFR] <- ["id_grid":: id_grid, "gear":: gear];
     }
+
 }
 
-loop cfr over: keys(first_idgrid_of_cfr) {
+loop cfr over: keys(vessel_info_by_cfr) {
 
     create vessel {
         CFR <- string(cfr);
-        id_grid <- string(first_idgrid_of_cfr[cfr]);
+        map info <- vessel_info_by_cfr[cfr];
+        id_grid <- string(info["id_grid"]);
+        gear <- string(info["gear"]);
 
         if (cell_by_idgrid contains_key id_grid) {
             cell c <- cell_by_idgrid[id_grid];
@@ -68,7 +74,7 @@ loop cfr over: keys(first_idgrid_of_cfr) {
             // location <- location + { rnd(-10,10), rnd(-10,10) };
         } else {
             location <- any_location_in(shape);
-            write "No matching cell for vessel CFR=" + CFR + " id_grid=" + id_grid;
+             write "No matching cell for CFR=" + CFR + " id_grid=" + id_grid;
         }
     }
 }
@@ -111,6 +117,7 @@ species harbour {
 species vessel{
 	string CFR <- "";
 	string id_grid <- "";
+	string gear <- "";
 	aspect base{
 		draw triangle(5000) color: #green border: #black rotate: 180;
 		
@@ -120,6 +127,7 @@ species vessel{
 species aggr_row {
     string CFR <- "";
     string id_grid <- "";
+    string gear <- "";
 }
 
 experiment surimi type: gui {
